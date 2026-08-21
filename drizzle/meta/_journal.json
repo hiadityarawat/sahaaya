@@ -8,6 +8,20 @@
       "when": 1787352600000,
       "tag": "0000_sahaaya_platform",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1787356200000,
+      "tag": "0001_community_help_offers",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787359800000,
+      "tag": "0002_live_delivery_tracking",
+      "breakpoints": true
     }
   ]
 }

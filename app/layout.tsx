@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Sahaaya — Disaster Response Network",
-  description: "Privacy-first coordination for disaster help requests, volunteers, organizations, and resources.",
+  title: "Sahaaya — Community Help Network",
+  description: "Request emergency help or offer food, medical support, shelter, transport, and essential supplies to people nearby.",
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",
