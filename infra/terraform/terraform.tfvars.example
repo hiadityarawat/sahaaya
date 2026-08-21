@@ -1,0 +1,8 @@
+environment="production"
+aws_region="ap-south-1"
+db_password="replace-with-a-long-random-password"
+jwt_secret="replace-with-at-least-32-random-characters"
+certificate_arn="arn:aws:acm:ap-south-1:123456789012:certificate/replace-me"
+cloudfront_certificate_arn="arn:aws:acm:us-east-1:123456789012:certificate/replace-me"
+api_hostname="api.sahaaya.example"
+frontend_hostname="sahaaya.example"

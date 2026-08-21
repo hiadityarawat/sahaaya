@@ -1,31 +1,69 @@
-name: Test, build, and deploy API
+name: Test, build, and deploy Sahaaya
 on:
   push: { branches: [main] }
   pull_request:
 permissions: { contents: read, id-token: write }
 jobs:
-  test:
+  validate:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env: { POSTGRES_DB: sahaaya_test, POSTGRES_USER: sahaaya, POSTGRES_PASSWORD: test-only-password }
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U sahaaya" --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: npm, cache-dependency-path: server/package-lock.json }
+        with: { node-version: 22, cache: npm, cache-dependency-path: "**/package-lock.json" }
+      - run: npm ci
+      - run: npm run build
       - run: npm ci
         working-directory: server
+      - run: for migration in db/*.sql; do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"; done
+        working-directory: server
+        env: { DATABASE_URL: "postgresql://sahaaya:test-only-password@localhost:5432/sahaaya_test" }
       - run: npm test
         working-directory: server
-  deploy:
+        env: { NODE_ENV: test, JWT_SECRET: test-secret-with-at-least-32-characters, DATABASE_URL: "postgresql://sahaaya:test-only-password@localhost:5432/sahaaya_test" }
+      - run: docker build -t sahaaya-api:test ./server
+  deploy-api:
     if: github.event_name == 'push'
-    needs: test
+    needs: validate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: aws-actions/configure-aws-credentials@v4
-        with: { role-to-assume: "${{ secrets.AWS_DEPLOY_ROLE }}", aws-region: ap-south-1 }
+        with: { role-to-assume: "${{ secrets.AWS_DEPLOY_ROLE }}", aws-region: "${{ vars.AWS_REGION }}" }
       - id: login
         uses: aws-actions/amazon-ecr-login@v2
-      - run: docker build -t "$ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA" ./server
+      - id: image
+        run: |
+          IMAGE="$ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA"
+          docker build -t "$IMAGE" ./server
+          docker push "$IMAGE"
+          echo "uri=$IMAGE" >> "$GITHUB_OUTPUT"
         env: { ECR_REGISTRY: "${{ steps.login.outputs.registry }}", ECR_REPOSITORY: "${{ vars.ECR_REPOSITORY }}" }
-      - run: docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA"
-        env: { ECR_REGISTRY: "${{ steps.login.outputs.registry }}", ECR_REPOSITORY: "${{ vars.ECR_REPOSITORY }}" }
-      - run: aws ecs update-service --cluster "${{ vars.ECS_CLUSTER }}" --service "${{ vars.ECS_SERVICE }}" --force-new-deployment
+      - run: aws ecs describe-task-definition --task-definition "${{ vars.ECS_TASK_FAMILY }}" --query taskDefinition > task-definition.json
+      - id: render
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with: { task-definition: task-definition.json, container-name: api, image: "${{ steps.image.outputs.uri }}" }
+      - uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with: { task-definition: "${{ steps.render.outputs.task-definition }}", service: "${{ vars.ECS_SERVICE }}", cluster: "${{ vars.ECS_CLUSTER }}", wait-for-service-stability: true }
+  deploy-frontend:
+    if: github.event_name == 'push'
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run build
+        env: { NEXT_PUBLIC_API_URL: "${{ vars.PUBLIC_API_URL }}" }
+      - uses: aws-actions/configure-aws-credentials@v4
+        with: { role-to-assume: "${{ secrets.AWS_DEPLOY_ROLE }}", aws-region: "${{ vars.AWS_REGION }}" }
+      - run: aws s3 sync dist/client "s3://${{ vars.FRONTEND_BUCKET }}" --delete --cache-control "public,max-age=31536000,immutable" --exclude "index.html"
+      - run: aws s3 cp dist/client/index.html "s3://${{ vars.FRONTEND_BUCKET }}/index.html" --cache-control "no-cache"
+      - run: aws cloudfront create-invalidation --distribution-id "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}" --paths "/*"
