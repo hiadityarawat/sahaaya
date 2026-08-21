@@ -1,0 +1,28 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: sahaaya
+      POSTGRES_USER: sahaaya
+      POSTGRES_PASSWORD: local-development-only
+    ports: ["5432:5432"]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./server/db/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL","pg_isready -U sahaaya"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  api:
+    build: ./server
+    environment:
+      PORT: 4000
+      DATABASE_URL: postgresql://sahaaya:local-development-only@db:5432/sahaaya
+      JWT_SECRET: local-only-secret-change-before-deployment
+      CORS_ORIGIN: http://localhost:3000
+    ports: ["4000:4000"]
+    depends_on:
+      db: { condition: service_healthy }
+volumes:
+  postgres_data:
