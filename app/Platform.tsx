@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, jsx-a11y/no-static-element-interactions, jsx-a11y/no-noninteractive-element-interactions */
 "use client";
 
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { type CSSProperties, FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import LiveHelpMap from "./LiveHelpMap";
 
 type Row = Record<string, any>;
@@ -127,6 +127,8 @@ export default function Platform() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
+  const [showIntro, setShowIntro] = useState(true);
+  const [deliverySuccess, setDeliverySuccess] = useState(false);
   const [view, setView] = useState("overview");
   const [q, setQ] = useState("");
   const [category, setCategory] = useState("ALL");
@@ -148,6 +150,11 @@ export default function Platform() {
       }
     },
   );
+  useEffect(() => {
+    const reduced = accessibility.reduceMotion || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const timer = window.setTimeout(() => setShowIntro(false), reduced ? 300 : 1900);
+    return () => window.clearTimeout(timer);
+  }, [accessibility.reduceMotion]);
   const load = useCallback(
     async (silent = false) => {
       if (!silent) setLoading(true);
@@ -232,6 +239,10 @@ export default function Platform() {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error);
       setToast(success);
+      if (payload.action === "confirm_delivery") {
+        setDeliverySuccess(true);
+        window.setTimeout(() => setDeliverySuccess(false), 2600);
+      }
       if (refresh) await load(true);
       return result;
     } catch (reason) {
@@ -256,6 +267,7 @@ export default function Platform() {
   ];
   return (
     <main className="platform-shell">
+      {showIntro && <SahaayaIntro />}
       <a className="skip-link" href="#main-workspace">
         Skip to main content
       </a>
@@ -363,7 +375,7 @@ export default function Platform() {
           {loading ? (
             <Loading />
           ) : (
-            <>
+            <div className="view-stage" key={view}>
               {view === "overview" && (
                 <Overview
                   data={data}
@@ -438,7 +450,7 @@ export default function Platform() {
                   setAccessibility={setAccessibility}
                 />
               )}
-            </>
+            </div>
           )}
         </div>
       </section>
@@ -490,17 +502,45 @@ export default function Platform() {
           <button onClick={() => setToast("")}>×</button>
         </div>
       )}
+      {deliverySuccess && <DeliverySuccess />}
     </main>
   );
 }
 
 function Loading() {
   return (
-    <div className="loading-state">
-      <span />
-      <span />
-      <span />
+    <div className="loading-state" role="status" aria-live="polite">
+      <span className="network-loader"><i>✦</i></span>
       <p>Synchronizing response network…</p>
+    </div>
+  );
+}
+
+function SahaayaIntro() {
+  return (
+    <div className="sahaaya-intro" role="status" aria-label="Sahaaya is loading">
+      <div className="intro-emblem">
+        <span className="intro-orbit"><i /></span>
+        <b>✦</b>
+      </div>
+      <div className="intro-wordmark" aria-hidden="true">
+        {"SAHAAYA".split("").map((letter, index) => (
+          <span key={`${letter}-${index}`} style={{ "--letter": index } as CSSProperties}>{letter}</span>
+        ))}
+      </div>
+      <p>Community Response Network</p>
+      <span className="intro-progress"><i /></span>
+    </div>
+  );
+}
+
+function DeliverySuccess() {
+  return (
+    <div className="delivery-success" role="status" aria-live="assertive">
+      <div className="success-seal"><i>✓</i></div>
+      <p className="overline">DELIVERY VERIFIED</p>
+      <h2>Help reached safely</h2>
+      <p>The request is complete and both participants have been notified.</p>
     </div>
   );
 }
