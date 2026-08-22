@@ -1,7 +1,8 @@
 import { AuthorizationError, db } from "./site-db";
 
 export const ADMIN_SESSION_COOKIE = "sahaaya_admin_session";
-export const ADMIN_PASSWORD_ITERATIONS = 210_000;
+export const ADMIN_PASSWORD_ITERATIONS = 100_000;
+export const ADMIN_PASSWORD_STAGES = 2;
 const ADMIN_SESSION_MS = 8 * 60 * 60 * 1000;
 
 const bytesToHex = (bytes: Uint8Array) =>
@@ -29,19 +30,27 @@ export async function deriveAdminPassword(
   const salt = Uint8Array.from(saltHex.match(/.{1,2}/g) ?? [], (value) =>
     Number.parseInt(value, 16),
   );
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(password),
-    "PBKDF2",
-    false,
-    ["deriveBits"],
-  );
-  const result = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", hash: "SHA-256", salt, iterations },
-    key,
-    256,
-  );
-  return bytesToHex(new Uint8Array(result));
+  let material = new TextEncoder().encode(password);
+  for (let stage = 0; stage < ADMIN_PASSWORD_STAGES; stage += 1) {
+    const stageSalt = new Uint8Array(salt.length + 1);
+    stageSalt.set(salt);
+    stageSalt[salt.length] = stage;
+    const key = await crypto.subtle.importKey(
+      "raw",
+      material,
+      "PBKDF2",
+      false,
+      ["deriveBits"],
+    );
+    material = new Uint8Array(
+      await crypto.subtle.deriveBits(
+        { name: "PBKDF2", hash: "SHA-256", salt: stageSalt, iterations },
+        key,
+        256,
+      ),
+    );
+  }
+  return bytesToHex(material);
 }
 
 export function newAdminPasswordSalt() {

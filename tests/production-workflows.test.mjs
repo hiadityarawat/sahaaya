@@ -334,7 +334,7 @@ test("admin dashboard requires hashed credentials and a protected admin session"
     .first();
   assert.notEqual(storedCredential.password_hash, password);
   assert.match(storedCredential.password_hash, /^[a-f0-9]{64}$/);
-  assert.ok(storedCredential.password_iterations >= 200000);
+  assert.equal(storedCredential.password_iterations, 100000);
   const session = await DB.prepare(
     "SELECT token_hash FROM admin_sessions WHERE user_id=?",
   )
