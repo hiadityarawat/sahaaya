@@ -5,6 +5,13 @@ import { join } from "node:path";
 import test from "node:test";
 import { Miniflare } from "miniflare";
 
+async function applyMigrations(DB,files){
+  for(const file of files){
+    const sql=await readFile(new URL(`../drizzle/${file}`,import.meta.url),"utf8");
+    for(const statement of sql.split("--> statement-breakpoint").map(value=>value.trim()).filter(Boolean))await DB.prepare(statement).run();
+  }
+}
+
 async function testEnvironment() {
   const serverRoot=fileURLToPath(new URL("../dist/server/",import.meta.url));
   const modulePaths=(await readdir(serverRoot,{recursive:true})).filter(path=>path.endsWith(".js")&&path!=="index.js");
@@ -21,12 +28,7 @@ async function testEnvironment() {
   });
   const DB = await runtime.getD1Database("DB");
   const files=(await readdir(new URL("../drizzle/",import.meta.url))).filter(name=>/^\d+.*\.sql$/.test(name)).sort();
-  for(const file of files){
-    const sql=await readFile(new URL(`../drizzle/${file}`,import.meta.url),"utf8");
-    for(const statement of sql.split("--> statement-breakpoint").map(value=>value.trim()).filter(Boolean)){
-      await DB.prepare(statement).run();
-    }
-  }
+  await applyMigrations(DB,files);
   async function api(user,path,body){
     const headers={"oai-authenticated-user-id":user.id,"oai-authenticated-user-email":user.email};
     if(body)headers["content-type"]="application/json";
@@ -89,4 +91,19 @@ test("privileged actions reject ordinary signed-in users",async(t)=>{
     {action:"review_report",id:"report-1",status:"APPROVED"},
     {action:"assign_volunteer",id:"request-1",volunteerId:"volunteer-1"},
   ])assert.equal((await api(resident,"/api/actions",body)).status,403);
+});
+
+test("hardening migration removes only known placeholders and preserves unknown legacy resources",async(t)=>{
+  const runtime=new Miniflare({modules:true,script:"export default {fetch(){return new Response('ok')}}",d1Databases:["DB"]});t.after(()=>runtime.dispose());
+  const DB=await runtime.getD1Database("DB");const files=(await readdir(new URL("../drizzle/",import.meta.url))).filter(name=>/^000[0-3].*\.sql$/.test(name)).sort();await applyMigrations(DB,files);
+  const now=new Date().toISOString();
+  await DB.batch([
+    DB.prepare("INSERT INTO users(id,email,name,role,email_verified,created_at) VALUES('legacy-user','legacy@example.test','Legacy user','RESIDENT',1,?)").bind(now),
+    DB.prepare("INSERT INTO organizations(id,name,public_area,verified,contact_email,created_at) VALUES('org-hope','Hope Foundation','Area',1,'response@hope.demo',?)").bind(now),
+    DB.prepare("INSERT INTO resources(id,organization_id,category,name,quantity,unit,updated_at) VALUES('res-meals','org-hope','FOOD','Placeholder meals',100,'meals',?)").bind(now),
+    DB.prepare("INSERT INTO resources(id,organization_id,category,name,quantity,unit,updated_at) VALUES('resource-unknown','org-hope','WATER','Possibly real bottles',7,'bottles',?)").bind(now),
+  ]);
+  await applyMigrations(DB,["0004_production_hardening.sql"]);
+  assert.equal(await DB.prepare("SELECT 1 FROM resources WHERE id='res-meals'").first(),null);
+  assert.ok(await DB.prepare("SELECT quantity FROM resources WHERE id='resource-unknown'").first());
 });

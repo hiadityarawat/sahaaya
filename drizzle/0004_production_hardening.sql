@@ -1,14 +1,22 @@
--- Remove placeholder inventory and events. From this migration onward, every
--- public resource is created and maintained by a signed-in community member.
-DELETE FROM resource_transactions;
+-- Remove only the exact built-in placeholder records. Unknown legacy records
+-- are preserved because their creator cannot be proven from the old schema.
+DELETE FROM resource_transactions
+WHERE resource_id IN ('res-meals','res-water','res-kits','res-shelter','res-blankets');
 --> statement-breakpoint
-DELETE FROM resources;
+DELETE FROM resources
+WHERE id IN ('res-meals','res-water','res-kits','res-shelter','res-blankets');
 --> statement-breakpoint
-DELETE FROM organizations;
+DELETE FROM organizations
+WHERE id IN ('org-hope','org-aid','org-care')
+  AND contact_email IN ('response@hope.demo','dispatch@rapidaid.demo','team@communitycare.demo');
 --> statement-breakpoint
-DELETE FROM disaster_events;
+UPDATE help_requests SET event_id=NULL
+WHERE event_id IN ('event-flood','event-cyclone','event-landslide');
 --> statement-breakpoint
-UPDATE help_requests SET event_id=NULL,delivery_code=NULL;
+DELETE FROM disaster_events
+WHERE id IN ('event-flood','event-cyclone','event-landslide');
+--> statement-breakpoint
+UPDATE help_requests SET delivery_code=NULL;
 --> statement-breakpoint
 
 ALTER TABLE help_requests ADD delivery_code_hash text;
