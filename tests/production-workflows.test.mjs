@@ -305,6 +305,7 @@ test("privileged actions reject ordinary signed-in users", async (t) => {
   assert.equal(health.headers.get("x-frame-options"), "DENY");
   for (const body of [
     { action: "create_event", name: "Unauthorized event", areas: "Area" },
+    { action: "delete_event", id: "event-1" },
     { action: "verify_org", id: "org-1", verified: true },
     { action: "review_report", id: "report-1", status: "APPROVED" },
     { action: "assign_volunteer", id: "request-1", volunteerId: "volunteer-1" },
@@ -383,17 +384,32 @@ test("admin dashboard requires hashed credentials and a protected admin session"
   const unlockedPayload = await unlockedState.json();
   assert.equal(unlockedPayload.adminAccess.authenticated, true);
   assert.ok(unlockedPayload.users.some((user) => user.id === admin.id));
-  assert.equal(
-    (
-      await api(
-        admin,
-        "/api/actions",
-        { action: "create_event", name: "Admin event", areas: "Area" },
-        cookie,
-      )
-    ).status,
-    200,
+  const createdEvent = await api(
+    admin,
+    "/api/actions",
+    {
+      action: "create_event",
+      name: "Admin flood information",
+      areas: "Whitefield, Bellandur",
+      latitude: 12.9716,
+      longitude: 77.5946,
+      startsAt: "2026-08-23T08:00",
+      safetyInfo: "Avoid flooded underpasses and follow official road closures.",
+      emergencyGuidance: "Contact local emergency services and use verified relief centres.",
+    },
+    cookie,
   );
+  assert.equal(createdEvent.status, 200);
+  const eventId = (await createdEvent.json()).id;
+  const residentMap = await api(resident, "/api/state?scope=map");
+  const residentMapPayload = await residentMap.json();
+  const visibleEvent = residentMapPayload.events.find((event) => event.id === eventId);
+  assert.equal(visibleEvent.status, "ACTIVE");
+  assert.equal(visibleEvent.approx_lat, 12.9716);
+  assert.match(visibleEvent.safety_info, /flooded underpasses/);
+  assert.equal((await api(resident, "/api/actions", { action: "delete_event", id: eventId })).status, 403);
+  assert.equal((await api(admin, "/api/actions", { action: "delete_event", id: eventId }, cookie)).status, 200);
+  assert.equal(await DB.prepare("SELECT 1 FROM disaster_events WHERE id=?").bind(eventId).first(), null);
 
   assert.equal(
     (

@@ -95,6 +95,37 @@ function ago(value: string) {
       ? `${Math.floor(minutes / 60)}h ago`
       : `${Math.floor(minutes / 1440)}d ago`;
 }
+function eventAreas(value: unknown) {
+  try {
+    const areas = JSON.parse(String(value ?? "[]"));
+    return Array.isArray(areas) ? areas.map(String).join(" · ") : "Affected area";
+  } catch {
+    return "Affected area";
+  }
+}
+function disasterMapPoints(events: Row[]) {
+  return events
+    .filter(
+      (event) =>
+        event.status === "ACTIVE" &&
+        Number.isFinite(event.approx_lat) &&
+        Number.isFinite(event.approx_lng),
+    )
+    .map((event) => ({
+      id: event.id,
+      lat: event.approx_lat,
+      lng: event.approx_lng,
+      label: event.name,
+      kind: "disaster" as const,
+      details: {
+        status: human(event.status),
+        areas: eventAreas(event.affected_areas),
+        startTime: event.starts_at,
+        safetyInfo: event.safety_info,
+        emergencyGuidance: event.emergency_guidance,
+      },
+    }));
+}
 function distanceMeters(
   a: { lat: number; lng: number },
   b: { lat: number; lng: number },
@@ -494,6 +525,7 @@ export default function Platform() {
               {view === "map" && (
                 <MapView
                   requests={data.mapRequests}
+                  events={data.events}
                   setCategory={setCategory}
                   category={category}
                   select={setSelected}
@@ -751,7 +783,7 @@ function Overview({
         />
       </div>
       <div className="overview-grid">
-        <MapCard requests={data.mapRequests} select={select} />
+        <MapCard requests={data.mapRequests} events={data.events} select={select} />
         <section className="surface priority-card">
           <CardHead
             eyebrow="NEEDS ATTENTION"
@@ -862,9 +894,11 @@ function RequestRow({ item, select }: { item: Row; select: (r: Row) => void }) {
 
 function MapCard({
   requests,
+  events,
   select,
 }: {
   requests: Row[];
+  events: Row[];
   select: (request: Row) => void;
 }) {
   const located = requests.filter(
@@ -878,13 +912,13 @@ function MapCard({
         action={<span className="safe-map">⌾ Approximate until matched</span>}
       />
       <LiveHelpMap
-        points={located.map((r) => ({
+        points={[...located.map((r) => ({
           id: r.id,
           lat: r.approx_lat,
           lng: r.approx_lng,
           label: `${human(r.category)} needed in ${r.public_area}`,
-          kind: "request",
-        }))}
+          kind: "request" as const,
+        })),...disasterMapPoints(events)]}
         onSelect={(id) => {
           const request = located.find((item) => item.id === id);
           if (request) select(request);
@@ -1106,11 +1140,13 @@ function Requests({
 
 function MapView({
   requests,
+  events,
   setCategory,
   category,
   select,
 }: {
   requests: Row[];
+  events: Row[];
   setCategory: (v: string) => void;
   category: string;
   select: (r: Row) => void;
@@ -1127,7 +1163,7 @@ function MapView({
       <PageHead
         eyebrow="CONSENT-BASED LOCATION"
         title="Live help map"
-        description="Requests appear by approximate area. Exact positions and helper movement are visible only to matched participants."
+        description="Help requests use approximate locations. Distinct disaster markers provide administrator-posted safety information only."
       />
       <div className="map-layout">
         <section className="surface map-filters">
@@ -1144,9 +1180,9 @@ function MapView({
             </select>
           </label>
           <p>
-            ⌾ Select a request below or click its map marker to open it and
-            offer help. Once accepted, both people can see the private live
-            delivery route and estimated arrival.
+            ⌾ Request markers open the help workflow. Disaster markers show
+            affected areas, safety information, and emergency guidance only;
+            they never create an assignment or reveal private locations.
           </p>
           <div className="map-request-list">
             {shown.slice(0, 8).map((item) => (
@@ -1162,13 +1198,13 @@ function MapView({
         </section>
         <section className="surface full-map">
           <LiveHelpMap
-            points={shown.map((r) => ({
+            points={[...shown.map((r) => ({
               id: r.id,
               lat: r.approx_lat,
               lng: r.approx_lng,
               label: `${human(r.category)} · ${r.public_area}`,
-              kind: "request",
-            }))}
+              kind: "request" as const,
+            })),...disasterMapPoints(events)]}
             onSelect={(id) => {
               const request = shown.find((item) => item.id === id);
               if (request) select(request);
@@ -1953,9 +1989,21 @@ function AdminView({
                 <Badge value={event.status} />
                 <div>
                   <b>{event.name}</b>
-                  <small>{JSON.parse(event.affected_areas).join(" · ")}</small>
+                  <small>{eventAreas(event.affected_areas)}</small>
                 </div>
                 <time>{new Date(event.starts_at).toLocaleDateString()}</time>
+                <button
+                  className="danger"
+                  onClick={() => {
+                    if (!window.confirm(`Delete ${event.name}? This removes its information marker from every user map.`)) return;
+                    act(
+                      { action: "delete_event", id: event.id },
+                      "Disaster event deleted",
+                    );
+                  }}
+                >
+                  Delete
+                </button>
               </article>
             ))}
           </div>
@@ -3155,6 +3203,31 @@ function CreateEvent({
   close: () => void;
   submit: (payload: Row) => Promise<void>;
 }) {
+  const [latitude, setLatitude] = useState("");
+  const [longitude, setLongitude] = useState("");
+  const [locationMessage, setLocationMessage] = useState("");
+  const [localNow] = useState(() => {
+    const current = new Date();
+    return new Date(current.getTime() - current.getTimezoneOffset() * 60000)
+      .toISOString()
+      .slice(0, 16);
+  });
+  const useCurrentPosition = () => {
+    if (!navigator.geolocation) {
+      setLocationMessage("Location is unavailable. Enter the approximate coordinates manually.");
+      return;
+    }
+    setLocationMessage("Finding the approximate event position…");
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLatitude(position.coords.latitude.toFixed(5));
+        setLongitude(position.coords.longitude.toFixed(5));
+        setLocationMessage("Approximate map position added.");
+      },
+      () => setLocationMessage("Location permission was not granted. Enter the approximate coordinates manually."),
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 },
+    );
+  };
   return (
     <div className="overlay" onMouseDown={close}>
       <section
@@ -3193,9 +3266,35 @@ function CreateEvent({
               placeholder="Whitefield, Bellandur, Marathahalli"
             />
           </label>
+          <label>
+            Event start time
+            <input name="startsAt" type="datetime-local" defaultValue={localNow} required />
+          </label>
+          <div className="coordinate-fields">
+            <label>
+              Approximate latitude
+              <input name="latitude" type="number" min={-90} max={90} step="any" value={latitude} onChange={(event) => setLatitude(event.target.value)} required />
+            </label>
+            <label>
+              Approximate longitude
+              <input name="longitude" type="number" min={-180} max={180} step="any" value={longitude} onChange={(event) => setLongitude(event.target.value)} required />
+            </label>
+          </div>
+          <button type="button" className="soft-btn" onClick={useCurrentPosition}>
+            ⌾ Use my current map position
+          </button>
+          {locationMessage && <p className="location-hint" role="status">{locationMessage}</p>}
+          <label>
+            Safety information
+            <textarea name="safetyInfo" required minLength={10} maxLength={1000} placeholder="Describe hazards, closed roads, evacuation advice, or areas people should avoid." />
+          </label>
+          <label>
+            Emergency-service guidance
+            <textarea name="emergencyGuidance" required minLength={10} maxLength={1000} placeholder="Provide official helplines, nearby relief centres, or instructions from emergency services." />
+          </label>
           <div className="privacy-copy">
-            Creating an event does not automatically label any resident or
-            request as fraudulent or unsafe.
+            This creates an information-only map marker. It does not create a
+            help request, assign a volunteer, or reveal anyone&apos;s private location.
           </div>
           <div className="modal-actions">
             <button type="button" className="soft-btn" onClick={close}>

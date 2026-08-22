@@ -64,6 +64,7 @@ Sahaaya is a multi-user community assistance platform for coordinating urgent he
 - Passwords are stored only as salted PBKDF2 hashes; readable passwords and session tokens are never stored.
 - Privileged sessions use secure, HTTP-only, same-site cookies, expire after eight hours, and can be locked immediately.
 - Administrator controls cover user roles and blocking, report review, organization verification, disaster events, volunteer assignment, and protected resource operations.
+- Active disaster events appear only as distinct information markers on signed-in users' maps. Their popups show status, affected areas, start time, safety information, emergency-service guidance, and an `INFORMATION ONLY` notice; they cannot be accepted or turned into assignments. Only an administrator with an unlocked admin session can create or delete an event.
 
 ### Delivery confirmation
 

@@ -40,7 +40,7 @@ export async function POST(request:Request) {
     try{body=await request.json() as Record<string,unknown>}catch{return Response.json({error:"Invalid request body."},{status:400})}
     const database=db();const time=timestamp();
     const action=String(body.action??"");
-    const adminSensitiveActions=new Set(["update_status","availability","assign_volunteer","adjust_resource","delete_resource","verify_resource","review_report","verify_org","create_event","manage_user"]);
+    const adminSensitiveActions=new Set(["update_status","availability","assign_volunteer","adjust_resource","delete_resource","verify_resource","review_report","verify_org","create_event","delete_event","manage_user"]);
     if(user.role==="ADMIN"&&adminSensitiveActions.has(action))await requireAdminSession(user,request.headers);
 
     if(body.action==="create_request"){
@@ -226,9 +226,13 @@ export async function POST(request:Request) {
       requireRole(user,["ADMIN"]);const orgId=String(body.id),verified=body.verified?1:0;await database.batch([database.prepare("UPDATE organizations SET verified=? WHERE id=?").bind(verified,orgId),database.prepare("INSERT INTO audit_logs(actor_id,action,entity_type,entity_id,metadata,created_at) VALUES(?,'VERIFY_ORGANIZATION','ORGANIZATION',?,?,?)").bind(user.id,orgId,JSON.stringify({verified:!!verified}),time)]);return Response.json({ok:true});
     }
     if(body.action==="create_event"){
-      requireRole(user,["ADMIN"]);const name=String(body.name||"").trim(),areas=String(body.areas||"").split(",").map(v=>v.trim()).filter(Boolean);
-      if(name.length<3||!areas.length)return Response.json({error:"Enter an event name and at least one affected area."},{status:400});
-      const eventId=makeId("event");await database.batch([database.prepare("INSERT INTO disaster_events(id,name,status,affected_areas,starts_at,created_at) VALUES(?,?,'ACTIVE',?,?,?)").bind(eventId,name,JSON.stringify(areas),time,time),database.prepare("INSERT INTO audit_logs(actor_id,action,entity_type,entity_id,metadata,created_at) VALUES(?,'CREATE_EVENT','EVENT',?,?,?)").bind(user.id,eventId,JSON.stringify({name,areas}),time)]);return Response.json({ok:true});
+      requireRole(user,["ADMIN"]);const name=String(body.name||"").trim(),areas=[...new Set(String(body.areas||"").split(",").map(v=>v.trim()).filter(Boolean))],latitude=Number(body.latitude),longitude=Number(body.longitude),safetyInfo=String(body.safetyInfo||"").trim(),emergencyGuidance=String(body.emergencyGuidance||"").trim(),requestedStart=String(body.startsAt||"").trim(),parsedStart=requestedStart?new Date(requestedStart):null,startsAt=parsedStart&&!Number.isNaN(parsedStart.getTime())?parsedStart.toISOString():time;
+      if(name.length<3||name.length>160||!areas.length||areas.length>20||areas.some(area=>area.length>120))return Response.json({error:"Enter a valid event name and affected areas."},{status:400});if(!validCoordinate(latitude,-90,90)||!validCoordinate(longitude,-180,180))return Response.json({error:"Enter a valid approximate map position."},{status:400});if(safetyInfo.length<10||safetyInfo.length>1000||emergencyGuidance.length<10||emergencyGuidance.length>1000)return Response.json({error:"Add clear safety information and emergency-service guidance."},{status:400});if(requestedStart&&(!parsedStart||Number.isNaN(parsedStart.getTime())))return Response.json({error:"Enter a valid event start time."},{status:400});
+      const eventId=makeId("event");await database.batch([database.prepare("INSERT INTO disaster_events(id,name,status,affected_areas,approx_lat,approx_lng,safety_info,emergency_guidance,starts_at,created_at) VALUES(?,?,'ACTIVE',?,?,?,?,?,?,?)").bind(eventId,name,JSON.stringify(areas),latitude,longitude,safetyInfo,emergencyGuidance,startsAt,time),database.prepare("INSERT INTO audit_logs(actor_id,action,entity_type,entity_id,metadata,created_at) VALUES(?,'CREATE_EVENT','EVENT',?,?,?)").bind(user.id,eventId,JSON.stringify({name,areas,latitude,longitude}),time)]);return Response.json({ok:true,id:eventId});
+    }
+    if(body.action==="delete_event"){
+      requireRole(user,["ADMIN"]);const eventId=String(body.id||"").trim();const event=await database.prepare("SELECT id,name FROM disaster_events WHERE id=?").bind(eventId).first<{id:string;name:string}>();if(!event)return Response.json({error:"Disaster event not found."},{status:404});
+      await database.batch([database.prepare("UPDATE help_requests SET event_id=NULL WHERE event_id=?").bind(eventId),database.prepare("UPDATE resources SET event_id=NULL WHERE event_id=?").bind(eventId),database.prepare("DELETE FROM disaster_events WHERE id=?").bind(eventId),database.prepare("INSERT INTO audit_logs(actor_id,action,entity_type,entity_id,metadata,created_at) VALUES(?,'DELETE_EVENT','EVENT',?,?,?)").bind(user.id,eventId,JSON.stringify({name:event.name}),time)]);return Response.json({ok:true});
     }
     if(body.action==="manage_user"){
       requireRole(user,["ADMIN"]);const targetId=String(body.id),operation=String(body.operation);if(targetId===user.id)return Response.json({error:"You cannot change your own administrator access."},{status:400});
