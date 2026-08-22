@@ -137,6 +137,7 @@ export default function Platform() {
   const [showRequest, setShowRequest] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const hasLoadedOnce = useRef(false);
   const seenNotifications = useRef<Set<string>>(new Set());
   const [accessibility, setAccessibility] = useState<AccessibilityPreferences>(
     () => {
@@ -160,7 +161,8 @@ export default function Platform() {
   }, [accessibility.reduceMotion]);
   const load = useCallback(
     async (silent = false) => {
-      if (!silent) setLoading(true);
+      const showBlockingLoader = !silent && !hasLoadedOnce.current;
+      if (showBlockingLoader) setLoading(true);
       try {
         const params = new URLSearchParams({ q, category, status, scope: view });
         const response = await fetchStateWithRetry(`/api/state?${params}`);
@@ -175,7 +177,8 @@ export default function Platform() {
               : "You are offline. Sahaaya will reconnect automatically.",
           );
       } finally {
-        if (!silent) setLoading(false);
+        hasLoadedOnce.current = true;
+        if (showBlockingLoader) setLoading(false);
       }
     },
     [q, category, status, view],
@@ -393,8 +396,19 @@ export default function Platform() {
       )}
       <section className="workspace">
         <header className="workspace-top">
-          <button className="mobile-brand" onClick={() => navigateTo("overview")}>
-            ✦ SAHAAYA
+          <button
+            className="mobile-brand"
+            onClick={() => navigateTo("overview")}
+            aria-label="Open Sahaaya community dashboard"
+          >
+            <span className="mobile-brand-mark">✦</span>
+            <span className="mobile-brand-word" aria-hidden="true">
+              {"SAHAAYA".split("").map((letter, index) => (
+                <i key={`${letter}-${index}`} style={{ "--brand-letter": index } as CSSProperties}>
+                  {letter}
+                </i>
+              ))}
+            </span>
           </button>
           <div className="crumb">
             <small>COMMUNITY HELP NETWORK</small>
