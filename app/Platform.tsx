@@ -7,6 +7,7 @@ import LiveHelpMap from "./LiveHelpMap";
 type Row = Record<string, any>;
 type State = {
   user: Row;
+  adminAccess: { configured: boolean; authenticated: boolean };
   requests: Row[];
   mapRequests: Row[];
   myRequests: Row[];
@@ -18,11 +19,13 @@ type State = {
   resources: Row[];
   notifications: Row[];
   reports: Row[];
+  users: Row[];
   activity: Row[];
   metrics: Row;
 };
 const empty: State = {
   user: {},
+  adminAccess: { configured: false, authenticated: false },
   requests: [],
   mapRequests: [],
   myRequests: [],
@@ -34,6 +37,7 @@ const empty: State = {
   resources: [],
   notifications: [],
   reports: [],
+  users: [],
   activity: [],
   metrics: {},
 };
@@ -171,6 +175,9 @@ export default function Platform() {
     { id: "requests", label: "Requests & offers", icon: "◎" },
     { id: "map", label: "Live help map", icon: "⌖" },
     { id: "resources", label: "Available resources", icon: "◉" },
+    ...(data.user.role === "ADMIN"
+      ? [{ id: "admin", label: "Admin dashboard", icon: "◆" }]
+      : []),
   ];
   return (
     <main className="platform-shell">
@@ -331,7 +338,9 @@ export default function Platform() {
               {view === "resources" && (
                 <ResourcesView resources={data.resources} act={act} />
               )}
-              {view === "admin" && <AdminView data={data} act={act} />}
+              {view === "admin" && (
+                <AdminGate data={data} act={act} reload={() => load(true)} />
+              )}
               {view === "notifications" && (
                 <NotificationsView
                   items={data.notifications}
@@ -1332,12 +1341,161 @@ function ResourceSummary({
   );
 }
 
-function AdminView({
+function AdminGate({
   data,
   act,
+  reload,
 }: {
   data: State;
   act: (p: Row, s: string) => Promise<any>;
+  reload: () => Promise<void>;
+}) {
+  const [loginId, setLoginId] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [message, setMessage] = useState("");
+  const [working, setWorking] = useState(false);
+
+  async function authenticate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const setup = !data.adminAccess.configured;
+    if (setup && password !== confirmation) {
+      setMessage("The two passwords do not match.");
+      return;
+    }
+    setWorking(true);
+    try {
+      const response = await fetch("/api/admin-auth", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: setup ? "setup" : "login",
+          loginId,
+          password,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error);
+      setPassword("");
+      setConfirmation("");
+      await reload();
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Admin login was unsuccessful.",
+      );
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  if (!data.adminAccess.authenticated)
+    return (
+      <div className="admin-login-shell">
+        <section className="surface admin-login-card">
+          <span className="admin-shield">◆</span>
+          <p className="overline">RESTRICTED ADMINISTRATION</p>
+          <h1>
+            {data.adminAccess.configured
+              ? "Unlock the Admin dashboard"
+              : "Secure your Admin dashboard"}
+          </h1>
+          <p>
+            {data.adminAccess.configured
+              ? "Enter the administrator ID and password created for this signed-in account."
+              : "Create the administrator ID and strong password that will protect this account's privileged controls."}
+          </p>
+          <form onSubmit={authenticate}>
+            <label>
+              Administrator ID
+              <input
+                value={loginId}
+                onChange={(event) => setLoginId(event.target.value)}
+                autoComplete="username"
+                minLength={4}
+                maxLength={40}
+                required
+                placeholder="e.g. sahaaya-admin"
+              />
+            </label>
+            <label>
+              Administrator password
+              <input
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                autoComplete={
+                  data.adminAccess.configured
+                    ? "current-password"
+                    : "new-password"
+                }
+                minLength={12}
+                maxLength={128}
+                required
+              />
+            </label>
+            {!data.adminAccess.configured && (
+              <>
+                <label>
+                  Confirm password
+                  <input
+                    type="password"
+                    value={confirmation}
+                    onChange={(event) => setConfirmation(event.target.value)}
+                    autoComplete="new-password"
+                    minLength={12}
+                    maxLength={128}
+                    required
+                  />
+                </label>
+                <small>
+                  Use 12 or more characters with uppercase, lowercase, a number,
+                  and a symbol. Your password is never stored in readable form.
+                </small>
+              </>
+            )}
+            {message && <div className="admin-login-error">{message}</div>}
+            <button className="solid-btn" disabled={working}>
+              {working
+                ? "Checking securely…"
+                : data.adminAccess.configured
+                  ? "Unlock Admin dashboard"
+                  : "Create credentials & continue"}
+            </button>
+          </form>
+          <div className="privacy-copy">
+            Your ChatGPT identity and administrator credentials must both match.
+            Repeated failed attempts are temporarily limited.
+          </div>
+        </section>
+      </div>
+    );
+
+  return (
+    <AdminView
+      data={data}
+      act={act}
+      lock={async () => {
+        await fetch("/api/admin-auth", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action: "logout" }),
+        });
+        await reload();
+      }}
+    />
+  );
+}
+
+function AdminView({
+  data,
+  act,
+  lock,
+}: {
+  data: State;
+  act: (p: Row, s: string) => Promise<any>;
+  lock: () => Promise<void>;
 }) {
   const [showEvent, setShowEvent] = useState(false);
   return (
@@ -1347,9 +1505,14 @@ function AdminView({
         title="Administration control room"
         description="Review reports, verify partners, monitor activity, and manage events without automated fraud judgments."
         action={
-          <button className="solid-btn" onClick={() => setShowEvent(true)}>
-            ＋ Create disaster event
-          </button>
+          <div className="head-actions">
+            <button className="soft-btn" onClick={lock}>
+              Lock dashboard
+            </button>
+            <button className="solid-btn" onClick={() => setShowEvent(true)}>
+              ＋ Create disaster event
+            </button>
+          </div>
         }
       />
       <div className="mini-stats">
@@ -1362,8 +1525,8 @@ function AdminView({
           <b>{data.organizations.filter((o) => !o.verified).length}</b>
         </article>
         <article>
-          <small>REGISTERED VOLUNTEERS</small>
-          <b>{data.volunteers.length}</b>
+          <small>REGISTERED USERS</small>
+          <b>{data.users.length}</b>
         </article>
         <article>
           <small>ACTIVE EVENTS</small>
@@ -1371,6 +1534,73 @@ function AdminView({
         </article>
       </div>
       <div className="admin-grid">
+        <section className="surface admin-users-card">
+          <CardHead eyebrow="ACCESS CONTROL" title="User administration" />
+          <div className="admin-user-list">
+            {data.users.map((account) => (
+              <article key={account.id}>
+                <span className="org-avatar">
+                  {(account.name || account.email).slice(0, 2).toUpperCase()}
+                </span>
+                <div>
+                  <b>{account.name}</b>
+                  <small>{account.email}</small>
+                </div>
+                <select
+                  value={account.role}
+                  disabled={account.id === data.user.id}
+                  aria-label={`Role for ${account.name}`}
+                  onChange={(event) =>
+                    act(
+                      {
+                        action: "manage_user",
+                        id: account.id,
+                        operation: "set_role",
+                        role: event.target.value,
+                      },
+                      `${account.name}'s role was updated`,
+                    )
+                  }
+                >
+                  {["RESIDENT", "VOLUNTEER", "ORGANIZATION", "ADMIN"].map(
+                    (role) => (
+                      <option value={role} key={role}>
+                        {human(role)}
+                      </option>
+                    ),
+                  )}
+                </select>
+                <button
+                  className={account.blocked_at ? "soft-btn" : "danger"}
+                  disabled={account.id === data.user.id}
+                  onClick={() => {
+                    if (
+                      !account.blocked_at &&
+                      !window.confirm(`Block ${account.name}'s account?`)
+                    )
+                      return;
+                    act(
+                      {
+                        action: "manage_user",
+                        id: account.id,
+                        operation: account.blocked_at ? "unblock" : "block",
+                      },
+                      account.blocked_at
+                        ? `${account.name} was unblocked`
+                        : `${account.name} was blocked`,
+                    );
+                  }}
+                >
+                  {account.id === data.user.id
+                    ? "Current admin"
+                    : account.blocked_at
+                      ? "Unblock"
+                      : "Block"}
+                </button>
+              </article>
+            ))}
+          </div>
+        </section>
         <section className="surface">
           <CardHead eyebrow="HUMAN REVIEW REQUIRED" title="Reported requests" />
           <div className="review-list">

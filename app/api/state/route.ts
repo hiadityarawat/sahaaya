@@ -5,6 +5,7 @@ import {
   ensureDatabase,
   currentUser,
 } from "../../../lib/site-db";
+import { adminAccessStatus } from "../../../lib/admin-auth";
 
 export const dynamic = "force-dynamic";
 type RequestRow = Record<string, unknown> & {
@@ -47,9 +48,13 @@ export async function GET(request: Request) {
       bindings.push(cursor);
     }
     const database = db();
-    const privileged = ["VOLUNTEER", "ORGANIZATION", "ADMIN"].includes(
-      user.role,
-    );
+    const adminAccess =
+      user.role === "ADMIN"
+        ? await adminAccessStatus(user.id, request.headers)
+        : { configured: false, authenticated: false };
+    const privileged =
+      ["VOLUNTEER", "ORGANIZATION"].includes(user.role) ||
+      adminAccess.authenticated;
     const [
       requests,
       mapRequests,
@@ -64,6 +69,7 @@ export async function GET(request: Request) {
       metrics,
       volunteers,
       reports,
+      users,
     ] = await Promise.all([
       database
         .prepare(
@@ -99,13 +105,19 @@ export async function GET(request: Request) {
           "SELECT * FROM disaster_events WHERE status='ACTIVE' ORDER BY starts_at DESC LIMIT 20",
         )
         .all(),
-      privileged
+      adminAccess.authenticated
         ? database
             .prepare(
-              "SELECT id,name,public_area,verified FROM organizations WHERE verified=1 ORDER BY name LIMIT 50",
+              "SELECT id,name,public_area,verified,contact_email,created_at FROM organizations ORDER BY verified ASC,name LIMIT 100",
             )
             .all()
-        : Promise.resolve({ results: [] }),
+        : privileged
+          ? database
+              .prepare(
+                "SELECT id,name,public_area,verified FROM organizations WHERE verified=1 ORDER BY name LIMIT 50",
+              )
+              .all()
+          : Promise.resolve({ results: [] }),
       database
         .prepare(
           "SELECT r.id,r.category,r.name,r.quantity,r.unit,r.public_area,r.updated_at,r.owner_id,u.name owner_name,CASE WHEN r.owner_id=? THEN 1 ELSE 0 END is_owner FROM resources r JOIN users u ON u.id=r.owner_id WHERE r.quantity>0 OR r.owner_id=? ORDER BY r.updated_at DESC LIMIT 100",
@@ -118,12 +130,18 @@ export async function GET(request: Request) {
         )
         .bind(user.id)
         .all(),
-      database
-        .prepare(
-          "SELECT ru.* FROM request_updates ru JOIN help_requests hr ON hr.id=ru.request_id WHERE hr.status NOT IN ('RESOLVED','CANCELLED') AND (hr.requester_id=? OR hr.accepted_by=?) ORDER BY ru.created_at DESC LIMIT 20",
-        )
-        .bind(user.id, user.id)
-        .all(),
+      adminAccess.authenticated
+        ? database
+            .prepare(
+              "SELECT ru.* FROM request_updates ru ORDER BY ru.created_at DESC LIMIT 50",
+            )
+            .all()
+        : database
+            .prepare(
+              "SELECT ru.* FROM request_updates ru JOIN help_requests hr ON hr.id=ru.request_id WHERE hr.status NOT IN ('RESOLVED','CANCELLED') AND (hr.requester_id=? OR hr.accepted_by=?) ORDER BY ru.created_at DESC LIMIT 20",
+            )
+            .bind(user.id, user.id)
+            .all(),
       database
         .prepare(
           "SELECT COUNT(*) total,SUM(CASE WHEN status NOT IN ('RESOLVED','CANCELLED') THEN 1 ELSE 0 END) active,SUM(CASE WHEN urgency='CRITICAL' AND status NOT IN ('RESOLVED','CANCELLED') THEN 1 ELSE 0 END) critical,SUM(CASE WHEN status='RESOLVED' THEN 1 ELSE 0 END) resolved FROM help_requests",
@@ -136,10 +154,17 @@ export async function GET(request: Request) {
             )
             .all()
         : Promise.resolve({ results: [] }),
-      user.role === "ADMIN"
+      adminAccess.authenticated
         ? database
             .prepare(
-              "SELECT * FROM reports WHERE status='PENDING' ORDER BY created_at DESC LIMIT 100",
+              "SELECT reports.*,help_requests.category,help_requests.public_area FROM reports JOIN help_requests ON help_requests.id=reports.request_id WHERE reports.status='PENDING' ORDER BY reports.created_at DESC LIMIT 100",
+            )
+            .all()
+        : Promise.resolve({ results: [] }),
+      adminAccess.authenticated
+        ? database
+            .prepare(
+              "SELECT id,email,name,role,blocked_at,created_at FROM users ORDER BY created_at DESC LIMIT 200",
             )
             .all()
         : Promise.resolve({ results: [] }),
@@ -189,6 +214,7 @@ export async function GET(request: Request) {
     return Response.json(
       {
         user,
+        adminAccess,
         requests: requestRows,
         mapRequests: mapRequests.results.map(decorate),
         myRequests: myRequests.results.map(decorate),
@@ -200,6 +226,7 @@ export async function GET(request: Request) {
         resources: resources.results,
         notifications: notifications.results,
         reports: reports.results,
+        users: users.results,
         activity: activity.results,
         metrics,
         nextCursor:

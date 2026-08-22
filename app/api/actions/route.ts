@@ -11,6 +11,7 @@ import {
   requireRole,
   timestamp,
 } from "../../../lib/site-db";
+import { requireAdminSession } from "../../../lib/admin-auth";
 import { env } from "cloudflare:workers";
 
 const allowedStatus=["ACCEPTED","IN_PROGRESS"];
@@ -36,6 +37,9 @@ export async function POST(request:Request) {
     let body:Record<string,unknown>;
     try{body=await request.json() as Record<string,unknown>}catch{return Response.json({error:"Invalid request body."},{status:400})}
     const database=db();const time=timestamp();
+    const action=String(body.action??"");
+    const adminSensitiveActions=new Set(["update_status","availability","assign_volunteer","adjust_resource","delete_resource","review_report","verify_org","create_event","manage_user"]);
+    if(user.role==="ADMIN"&&adminSensitiveActions.has(action))await requireAdminSession(user,request.headers);
 
     if(body.action==="create_request"){
       await consumeRateLimit(`request:${user.id}`,10,60*60_000);
@@ -200,12 +204,28 @@ export async function POST(request:Request) {
       const exists=await database.prepare("SELECT 1 found FROM help_requests WHERE id=?").bind(requestId).first();if(!exists)return Response.json({error:"Request not found."},{status:404});
       await database.prepare("INSERT INTO reports(id,request_id,reporter_id,reason,status,created_at) VALUES(?,?,?,?,'PENDING',?)").bind(makeId("report"),requestId,user.id,reason,time).run();return Response.json({ok:true});
     }
-    if(body.action==="review_report"){requireRole(user,["ADMIN"]);await database.prepare("UPDATE reports SET status=?,reviewed_at=? WHERE id=?").bind(String(body.status),time,String(body.id)).run();return Response.json({ok:true})}
-    if(body.action==="verify_org"){requireRole(user,["ADMIN"]);await database.prepare("UPDATE organizations SET verified=? WHERE id=?").bind(body.verified?1:0,String(body.id)).run();return Response.json({ok:true})}
+    if(body.action==="review_report"){
+      requireRole(user,["ADMIN"]);const status=String(body.status),reportId=String(body.id);if(!["VERIFIED","REMOVED"].includes(status))return Response.json({error:"Invalid review decision."},{status:400});
+      const report=await database.prepare("SELECT request_id FROM reports WHERE id=? AND status='PENDING'").bind(reportId).first<{request_id:string}>();if(!report)return Response.json({error:"This report was already reviewed."},{status:409});
+      const statements=[database.prepare("UPDATE reports SET status=?,reviewed_at=? WHERE id=? AND status='PENDING'").bind(status,time,reportId),database.prepare("INSERT INTO audit_logs(actor_id,action,entity_type,entity_id,metadata,created_at) VALUES(?,'REVIEW_REPORT','REPORT',?,?,?)").bind(user.id,reportId,JSON.stringify({status}),time)];
+      if(status==="REMOVED")statements.push(database.prepare("UPDATE help_requests SET status='CANCELLED',updated_at=? WHERE id=? AND status NOT IN ('RESOLVED','CANCELLED')").bind(time,report.request_id));
+      await database.batch(statements);return Response.json({ok:true});
+    }
+    if(body.action==="verify_org"){
+      requireRole(user,["ADMIN"]);const orgId=String(body.id),verified=body.verified?1:0;await database.batch([database.prepare("UPDATE organizations SET verified=? WHERE id=?").bind(verified,orgId),database.prepare("INSERT INTO audit_logs(actor_id,action,entity_type,entity_id,metadata,created_at) VALUES(?,'VERIFY_ORGANIZATION','ORGANIZATION',?,?,?)").bind(user.id,orgId,JSON.stringify({verified:!!verified}),time)]);return Response.json({ok:true});
+    }
     if(body.action==="create_event"){
       requireRole(user,["ADMIN"]);const name=String(body.name||"").trim(),areas=String(body.areas||"").split(",").map(v=>v.trim()).filter(Boolean);
       if(name.length<3||!areas.length)return Response.json({error:"Enter an event name and at least one affected area."},{status:400});
-      await database.prepare("INSERT INTO disaster_events(id,name,status,affected_areas,starts_at,created_at) VALUES(?,?,'ACTIVE',?,?,?)").bind(makeId("event"),name,JSON.stringify(areas),time,time).run();return Response.json({ok:true});
+      const eventId=makeId("event");await database.batch([database.prepare("INSERT INTO disaster_events(id,name,status,affected_areas,starts_at,created_at) VALUES(?,?,'ACTIVE',?,?,?)").bind(eventId,name,JSON.stringify(areas),time,time),database.prepare("INSERT INTO audit_logs(actor_id,action,entity_type,entity_id,metadata,created_at) VALUES(?,'CREATE_EVENT','EVENT',?,?,?)").bind(user.id,eventId,JSON.stringify({name,areas}),time)]);return Response.json({ok:true});
+    }
+    if(body.action==="manage_user"){
+      requireRole(user,["ADMIN"]);const targetId=String(body.id),operation=String(body.operation);if(targetId===user.id)return Response.json({error:"You cannot change your own administrator access."},{status:400});
+      const target=await database.prepare("SELECT id,role,blocked_at FROM users WHERE id=?").bind(targetId).first<{id:string;role:string;blocked_at:string|null}>();if(!target)return Response.json({error:"User not found."},{status:404});
+      if(operation==="block"||operation==="unblock")await database.prepare("UPDATE users SET blocked_at=? WHERE id=?").bind(operation==="block"?time:null,targetId).run();
+      else if(operation==="set_role"){const role=String(body.role);if(!["RESIDENT","VOLUNTEER","ORGANIZATION","ADMIN"].includes(role))return Response.json({error:"Invalid user role."},{status:400});await database.prepare("UPDATE users SET role=? WHERE id=?").bind(role,targetId).run();}
+      else return Response.json({error:"Invalid user-management action."},{status:400});
+      await database.batch([database.prepare("DELETE FROM admin_sessions WHERE user_id=?").bind(targetId),database.prepare("INSERT INTO audit_logs(actor_id,action,entity_type,entity_id,metadata,created_at) VALUES(?,'MANAGE_USER','USER',?,?,?)").bind(user.id,targetId,JSON.stringify({operation,role:body.role??null}),time)]);return Response.json({ok:true});
     }
     if(body.action==="read_notifications"){await database.prepare("UPDATE notifications SET read_at=? WHERE user_id=? AND read_at IS NULL").bind(time,user.id).run();return Response.json({ok:true})}
     return Response.json({error:"Unknown action."},{status:400});

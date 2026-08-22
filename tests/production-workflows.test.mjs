@@ -45,12 +45,13 @@ async function testEnvironment() {
     .filter((name) => /^\d+.*\.sql$/.test(name))
     .sort();
   await applyMigrations(DB, files);
-  async function api(user, path, body) {
+  async function api(user, path, body, cookie) {
     const headers = {
       "oai-authenticated-user-id": user.id,
       "oai-authenticated-user-email": user.email,
     };
     if (body) headers["content-type"] = "application/json";
+    if (cookie) headers.cookie = cookie;
     return runtime.dispatchFetch(`http://localhost${path}`, {
       method: body ? "POST" : "GET",
       headers,
@@ -273,6 +274,112 @@ test("privileged actions reject ordinary signed-in users", async (t) => {
     { action: "assign_volunteer", id: "request-1", volunteerId: "volunteer-1" },
   ])
     assert.equal((await api(resident, "/api/actions", body)).status, 403);
+});
+
+test("admin dashboard requires hashed credentials and a protected admin session", async (t) => {
+  const { runtime, api, DB } = await testEnvironment();
+  t.after(() => runtime.dispose());
+  const admin = { id: "admin-1", email: "admin@example.test" };
+  const resident = { id: "resident-admin-probe", email: "probe@example.test" };
+
+  assert.equal((await api(admin, "/api/health")).status, 200);
+  assert.equal((await api(admin, "/api/state")).status, 200);
+  await DB.prepare("UPDATE users SET role='ADMIN' WHERE id=?")
+    .bind(admin.id)
+    .run();
+  const lockedState = await api(admin, "/api/state");
+  const lockedPayload = await lockedState.json();
+  assert.deepEqual(lockedPayload.adminAccess, {
+    configured: false,
+    authenticated: false,
+  });
+  assert.equal(lockedPayload.users.length, 0);
+  assert.equal(
+    (
+      await api(admin, "/api/actions", {
+        action: "create_event",
+        name: "Locked admin event",
+        areas: "Area",
+      })
+    ).status,
+    403,
+  );
+
+  assert.equal(
+    (
+      await api(admin, "/api/admin-auth", {
+        action: "setup",
+        loginId: "sahaaya-admin",
+        password: "weak",
+      })
+    ).status,
+    400,
+  );
+  const password = "Sahaaya#Admin2026";
+  const setup = await api(admin, "/api/admin-auth", {
+    action: "setup",
+    loginId: "sahaaya-admin",
+    password,
+  });
+  assert.equal(setup.status, 200);
+  const cookie = setup.headers.get("set-cookie").split(";", 1)[0];
+  assert.match(cookie, /^sahaaya_admin_session=/);
+  assert.match(setup.headers.get("set-cookie"), /HttpOnly/i);
+  assert.match(setup.headers.get("set-cookie"), /SameSite=Strict/i);
+
+  const storedCredential = await DB.prepare(
+    "SELECT password_salt,password_hash,password_iterations FROM admin_credentials WHERE user_id=?",
+  )
+    .bind(admin.id)
+    .first();
+  assert.notEqual(storedCredential.password_hash, password);
+  assert.match(storedCredential.password_hash, /^[a-f0-9]{64}$/);
+  assert.ok(storedCredential.password_iterations >= 200000);
+  const session = await DB.prepare(
+    "SELECT token_hash FROM admin_sessions WHERE user_id=?",
+  )
+    .bind(admin.id)
+    .first();
+  assert.match(session.token_hash, /^[a-f0-9]{64}$/);
+  assert.notEqual(session.token_hash, cookie.split("=")[1]);
+
+  const unlockedState = await api(admin, "/api/state", undefined, cookie);
+  const unlockedPayload = await unlockedState.json();
+  assert.equal(unlockedPayload.adminAccess.authenticated, true);
+  assert.ok(unlockedPayload.users.some((user) => user.id === admin.id));
+  assert.equal(
+    (
+      await api(
+        admin,
+        "/api/actions",
+        { action: "create_event", name: "Admin event", areas: "Area" },
+        cookie,
+      )
+    ).status,
+    200,
+  );
+
+  assert.equal((await api(resident, "/api/health")).status, 200);
+  assert.equal(
+    (
+      await api(resident, "/api/admin-auth", {
+        action: "login",
+        loginId: "sahaaya-admin",
+        password,
+      })
+    ).status,
+    403,
+  );
+
+  const logout = await api(
+    admin,
+    "/api/admin-auth",
+    { action: "logout" },
+    cookie,
+  );
+  assert.equal(logout.status, 200);
+  const relockedState = await api(admin, "/api/state", undefined, cookie);
+  assert.equal((await relockedState.json()).adminAccess.authenticated, false);
 });
 
 test("hardening migration removes only known placeholders and preserves unknown legacy resources", async (t) => {

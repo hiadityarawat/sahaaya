@@ -57,6 +57,14 @@ Sahaaya is a multi-user community assistance platform for coordinating urgent he
 - Maps use Leaflet with OpenStreetMap tiles.
 - The Live Help Map includes every active located request in the current map feed, and selecting a marker opens that request directly.
 
+### Protected administration
+
+- The Admin dashboard appears only for accounts with the server-side `ADMIN` role.
+- Each administrator creates a unique administrator ID and strong password after signing in with ChatGPT.
+- Passwords are stored only as salted PBKDF2 hashes; readable passwords and session tokens are never stored.
+- Privileged sessions use secure, HTTP-only, same-site cookies, expire after eight hours, and can be locked immediately.
+- Administrator controls cover user roles and blocking, report review, organization verification, disaster events, volunteer assignment, and protected resource operations.
+
 ### Delivery confirmation
 
 - The accepted helper generates a six-digit, one-time code only when delivery is ready.
