@@ -142,7 +142,7 @@ Browser → Login/Register → Authentication API → PBKDF2 password verificati
         → server-side D1 session → HttpOnly cookie → protected Sahaaya APIs
 ```
 
-- Passwords use per-account random salts and PBKDF2-SHA-256 with 210,000 iterations. Plaintext passwords are never stored or logged.
+- Passwords use per-account random salts and two independent PBKDF2-SHA-256 stages of 100,000 iterations each, matching Cloudflare Workers' per-operation limit. Plaintext passwords are never stored or logged.
 - The browser receives a random session token only in the `sahaaya_session` cookie. D1 stores only its SHA-256 hash.
 - The cookie is `HttpOnly`, `Secure`, `SameSite=Strict`, limited to `/`, and expires after 30 days.
 - `/api/auth/me` is the authoritative current-user endpoint. Frontend state never supplies user IDs or roles for authorization.

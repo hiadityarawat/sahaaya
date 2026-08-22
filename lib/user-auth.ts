@@ -4,7 +4,11 @@ import { AuthenticationRequiredError, AuthorizationError } from "./errors";
 
 export const USER_SESSION_COOKIE = "sahaaya_session";
 export const USER_SESSION_MS = 30 * 24 * 60 * 60 * 1000;
-export const PASSWORD_ITERATIONS = 210_000;
+// workerd caps each PBKDF2 operation at 100,000 iterations. Two independently
+// salted stages preserve a deliberately expensive derivation while remaining
+// compatible with the production Cloudflare runtime.
+export const PASSWORD_ITERATIONS = 100_000;
+export const PASSWORD_STAGES = 2;
 
 export type SafeUser = { id:string; email:string; name:string; role:string; email_verified:number; blocked_at:string|null };
 const db=()=>env.DB;
@@ -19,8 +23,13 @@ export const passwordProblem=(value:string)=>value.length<10?"Use at least 10 ch
 export async function hashSecret(value:string){const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(value));return hex(new Uint8Array(digest))}
 export async function derivePassword(password:string,saltHex:string,iterations=PASSWORD_ITERATIONS){
   const salt=Uint8Array.from(saltHex.match(/.{1,2}/g)??[],v=>Number.parseInt(v,16));
-  const key=await crypto.subtle.importKey("raw",new TextEncoder().encode(password),"PBKDF2",false,["deriveBits"]);
-  return hex(new Uint8Array(await crypto.subtle.deriveBits({name:"PBKDF2",hash:"SHA-256",salt,iterations},key,256)));
+  let material=new TextEncoder().encode(password);
+  for(let stage=0;stage<PASSWORD_STAGES;stage+=1){
+    const stageSalt=new Uint8Array(salt.length+1);stageSalt.set(salt);stageSalt[salt.length]=stage;
+    const key=await crypto.subtle.importKey("raw",material,"PBKDF2",false,["deriveBits"]);
+    material=new Uint8Array(await crypto.subtle.deriveBits({name:"PBKDF2",hash:"SHA-256",salt:stageSalt,iterations},key,256));
+  }
+  return hex(material);
 }
 export const newPasswordSalt=()=>randomHex(16);
 export function safeEqual(left:string,right:string){if(left.length!==right.length)return false;let diff=0;for(let i=0;i<left.length;i++)diff|=left.charCodeAt(i)^right.charCodeAt(i);return diff===0}
