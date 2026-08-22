@@ -8,6 +8,7 @@ type Row = Record<string, any>;
 type State = {
   user: Row;
   requests: Row[];
+  mapRequests: Row[];
   myRequests: Row[];
   history: Row[];
   offers: Row[];
@@ -23,6 +24,7 @@ type State = {
 const empty: State = {
   user: {},
   requests: [],
+  mapRequests: [],
   myRequests: [],
   history: [],
   offers: [],
@@ -309,7 +311,7 @@ export default function Platform() {
               )}
               {view === "map" && (
                 <MapView
-                  requests={data.requests}
+                  requests={data.mapRequests}
                   setCategory={setCategory}
                   category={category}
                   select={setSelected}
@@ -511,7 +513,7 @@ function Overview({
         />
       </div>
       <div className="overview-grid">
-        <MapCard requests={active.slice(0, 12)} />
+        <MapCard requests={data.mapRequests} select={select} />
         <section className="surface priority-card">
           <CardHead
             eyebrow="NEEDS ATTENTION"
@@ -612,7 +614,13 @@ function RequestRow({ item, select }: { item: Row; select: (r: Row) => void }) {
   );
 }
 
-function MapCard({ requests }: { requests: Row[] }) {
+function MapCard({
+  requests,
+  select,
+}: {
+  requests: Row[];
+  select: (request: Row) => void;
+}) {
   const located = requests.filter(
     (r) => Number.isFinite(r.approx_lat) && Number.isFinite(r.approx_lng),
   );
@@ -631,6 +639,10 @@ function MapCard({ requests }: { requests: Row[] }) {
           label: `${human(r.category)} needed in ${r.public_area}`,
           kind: "request",
         }))}
+        onSelect={(id) => {
+          const request = located.find((item) => item.id === id);
+          if (request) select(request);
+        }}
       />
     </section>
   );
@@ -886,8 +898,9 @@ function MapView({
             </select>
           </label>
           <p>
-            ⌾ Open a request to offer help. Once accepted, both people can see
-            the private live delivery route and estimated arrival.
+            ⌾ Select a request below or click its map marker to open it and
+            offer help. Once accepted, both people can see the private live
+            delivery route and estimated arrival.
           </p>
           <div className="map-request-list">
             {shown.slice(0, 8).map((item) => (
@@ -910,6 +923,10 @@ function MapView({
               label: `${human(r.category)} · ${r.public_area}`,
               kind: "request",
             }))}
+            onSelect={(id) => {
+              const request = shown.find((item) => item.id === id);
+              if (request) select(request);
+            }}
           />
         </section>
       </div>

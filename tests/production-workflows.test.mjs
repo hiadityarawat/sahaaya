@@ -115,6 +115,10 @@ test("production workflow enforces ownership, one helper, private data, secure c
   assert.equal(publicState.status, 200);
   const publicPayload = await publicState.json();
   assert.equal(publicPayload.myRequests.length, 0);
+  assert.equal(publicPayload.mapRequests.length, 1);
+  assert.equal(publicPayload.mapRequests[0].id, requestId);
+  assert.equal(publicPayload.mapRequests[0].approx_lat, 12.97);
+  assert.equal(publicPayload.mapRequests[0].requester_email, undefined);
   const publicRequest = publicPayload.requests[0];
   assert.equal(publicRequest.approx_lat, 12.97);
   assert.equal(publicRequest.requester_email, undefined);
@@ -212,6 +216,7 @@ test("production workflow enforces ownership, one helper, private data, secure c
   const completedState = await api(requester, "/api/state");
   const completedPayload = await completedState.json();
   assert.equal(completedPayload.myRequests[0].status, "RESOLVED");
+  assert.equal(completedPayload.mapRequests.length, 0);
 
   const added = await api(requester, "/api/actions", {
     action: "add_resource",

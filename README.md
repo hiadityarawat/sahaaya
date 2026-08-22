@@ -55,6 +55,7 @@ Sahaaya is a multi-user community assistance platform for coordinating urgent he
 - The helper can voluntarily share a live journey location.
 - The requester sees the helper's position, route, last update, and approximate arrival time.
 - Maps use Leaflet with OpenStreetMap tiles.
+- The Live Help Map includes every active located request in the current map feed, and selecting a marker opens that request directly.
 
 ### Delivery confirmation
 

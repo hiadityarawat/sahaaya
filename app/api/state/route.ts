@@ -52,6 +52,7 @@ export async function GET(request: Request) {
     );
     const [
       requests,
+      mapRequests,
       myRequests,
       history,
       offers,
@@ -69,6 +70,11 @@ export async function GET(request: Request) {
           `SELECT hr.*,requester.name requester_name,helper.name helper_name FROM help_requests hr JOIN users requester ON requester.id=hr.requester_id LEFT JOIN users helper ON helper.id=hr.accepted_by WHERE ${conditions.join(" AND ")} ORDER BY CASE hr.urgency WHEN 'CRITICAL' THEN 1 WHEN 'URGENT' THEN 2 ELSE 3 END,hr.created_at DESC LIMIT 50`,
         )
         .bind(...bindings)
+        .all<RequestRow>(),
+      database
+        .prepare(
+          "SELECT hr.*,requester.name requester_name,helper.name helper_name FROM help_requests hr JOIN users requester ON requester.id=hr.requester_id LEFT JOIN users helper ON helper.id=hr.accepted_by WHERE hr.status NOT IN ('RESOLVED','CANCELLED') AND hr.approx_lat IS NOT NULL AND hr.approx_lng IS NOT NULL ORDER BY CASE hr.urgency WHEN 'CRITICAL' THEN 1 WHEN 'URGENT' THEN 2 ELSE 3 END,hr.created_at DESC LIMIT 500",
+        )
         .all<RequestRow>(),
       database
         .prepare(
@@ -184,6 +190,7 @@ export async function GET(request: Request) {
       {
         user,
         requests: requestRows,
+        mapRequests: mapRequests.results.map(decorate),
         myRequests: myRequests.results.map(decorate),
         history: history.results.map(decorate),
         offers: offers.results,

@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 
 type Point={id:string;lat:number;lng:number;label:string;kind?:"request"|"helper"};
-export default function LiveHelpMap({points,route=false}:{points:Point[];route?:boolean}){
+export default function LiveHelpMap({points,route=false,onSelect}:{points:Point[];route?:boolean;onSelect?:(id:string)=>void}){
   const host=useRef<HTMLDivElement>(null);
   const [error,setError]=useState("");
   useEffect(()=>{let disposed=false;let map:{remove:()=>void}|undefined;(async()=>{
@@ -13,11 +13,11 @@ export default function LiveHelpMap({points,route=false}:{points:Point[];route?:
     const instance=L.map(host.current,{zoomControl:true,attributionControl:true}).setView(center,points.length>1?13:14);map=instance;
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',maxZoom:19}).addTo(instance);
     const bounds:[number,number][]=[];
-    for(const point of points){bounds.push([point.lat,point.lng]);const helper=point.kind==="helper";const icon=L.divIcon({className:"sahaaya-map-icon",html:`<span class="${helper?"helper":"request"}">${helper?"➤":"✚"}</span>`,iconSize:[38,38],iconAnchor:[19,19]});const popup=document.createElement("span");popup.textContent=point.label;L.marker([point.lat,point.lng],{icon,title:point.label,alt:point.label}).addTo(instance).bindPopup(popup)}
+    for(const point of points){bounds.push([point.lat,point.lng]);const helper=point.kind==="helper";const icon=L.divIcon({className:"sahaaya-map-icon",html:`<span class="${helper?"helper":"request"}">${helper?"➤":"✚"}</span>`,iconSize:[38,38],iconAnchor:[19,19]});const popup=document.createElement("span");popup.textContent=onSelect?`${point.label} · Click the marker to open`:point.label;const marker=L.marker([point.lat,point.lng],{icon,title:onSelect?`${point.label}. Open request`:point.label,alt:point.label}).addTo(instance).bindPopup(popup);if(onSelect)marker.on("click",()=>onSelect(point.id))}
     if(route&&points.length>1)L.polyline(points.map(p=>[p.lat,p.lng] as [number,number]),{color:"#176b55",weight:5,dashArray:"10 9"}).addTo(instance);
     if(bounds.length>1)instance.fitBounds(L.latLngBounds(bounds),{padding:[45,45],maxZoom:15});
     }catch{if(!disposed)setError("The live map is temporarily unavailable. Location updates will continue safely.")}
-  })();return()=>{disposed=true;map?.remove()}},[points,route]);
+  })();return()=>{disposed=true;map?.remove()}},[points,route,onSelect]);
   if(error)return <div className="map-empty" role="status">{error}</div>;
   if(!points.length)return <div className="map-empty">Location will appear after permission is granted.</div>;
   return <div className="leaflet-host" ref={host} aria-label="Live help delivery map"/>;
