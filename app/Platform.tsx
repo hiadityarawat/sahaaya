@@ -363,6 +363,7 @@ export default function Platform() {
                 ×
               </button>
             </header>
+            <p className="mobile-nav-label">Navigation</p>
             <nav aria-label="Mobile workspace navigation">
               {menu.map((item) => (
                 <button
@@ -415,15 +416,6 @@ export default function Platform() {
             <b>{menu.find((item) => item.id === view)?.label ?? human(view)}</b>
           </div>
           <div className="top-actions">
-            <button
-              className="mobile-menu-button"
-              aria-label="Open all sections"
-              aria-expanded={mobileMenuOpen}
-              aria-controls="mobile-navigation"
-              onClick={() => setMobileMenuOpen(true)}
-            >
-              ☰
-            </button>
             <span className="signed-user">
               Signed in as <b>{data.user.name || "Member"}</b>
             </span>
