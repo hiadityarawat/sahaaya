@@ -136,6 +136,7 @@ export default function Platform() {
   const [selected, setSelected] = useState<Row | null>(null);
   const [showRequest, setShowRequest] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const seenNotifications = useRef<Set<string>>(new Set());
   const [accessibility, setAccessibility] = useState<AccessibilityPreferences>(
     () => {
@@ -267,6 +268,17 @@ export default function Platform() {
       ? [{ id: "admin", label: "Admin dashboard", icon: "◆" }]
       : []),
   ];
+  const navigateTo = (destination: string) => {
+    setView(destination);
+    setMobileMenuOpen(false);
+    setShowNotifications(false);
+    window.requestAnimationFrame(() =>
+      window.scrollTo({
+        top: 0,
+        behavior: accessibility.reduceMotion ? "auto" : "smooth",
+      }),
+    );
+  };
   return (
     <main className="platform-shell">
       {showIntro && <SahaayaIntro />}
@@ -274,7 +286,7 @@ export default function Platform() {
         Skip to main content
       </a>
       <aside className="sidebar">
-        <button className="side-brand" onClick={() => setView("overview")}>
+        <button className="side-brand" onClick={() => navigateTo("overview")}>
           <span>✦</span>
           <b>
             SAHAAYA<small>Response Network</small>
@@ -294,7 +306,7 @@ export default function Platform() {
             <button
               key={item.id}
               className={view === item.id ? "active" : ""}
-              onClick={() => setView(item.id)}
+              onClick={() => navigateTo(item.id)}
             >
               <i>{item.icon}</i>
               {item.label}
@@ -303,10 +315,10 @@ export default function Platform() {
         </nav>
         <div className="side-section">
           <small>YOUR WORKSPACE</small>
-          <button onClick={() => setView("notifications")}>
+          <button onClick={() => navigateTo("notifications")}>
             <i>●</i> Notifications {unread.length > 0 && <b>{unread.length}</b>}
           </button>
-          <button onClick={() => setView("profile")}>
+          <button onClick={() => navigateTo("profile")}>
             <i>◌</i> Profile & settings
           </button>
           <a className="side-logout" href="/signout-with-chatgpt?return_to=/">
@@ -321,9 +333,67 @@ export default function Platform() {
           </span>
         </div>
       </aside>
+      {mobileMenuOpen && (
+        <div className="mobile-nav-layer">
+          <button
+            className="mobile-nav-scrim"
+            aria-label="Close navigation menu"
+            onClick={() => setMobileMenuOpen(false)}
+          />
+          <aside
+            className="mobile-nav-drawer"
+            id="mobile-navigation"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Sahaaya navigation"
+          >
+            <header>
+              <span>✦</span>
+              <div>
+                <b>SAHAAYA</b>
+                <small>All sections</small>
+              </div>
+              <button
+                aria-label="Close navigation menu"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                ×
+              </button>
+            </header>
+            <nav aria-label="Mobile workspace navigation">
+              {menu.map((item) => (
+                <button
+                  key={item.id}
+                  className={view === item.id ? "active" : ""}
+                  onClick={() => navigateTo(item.id)}
+                >
+                  <i>{item.icon}</i>
+                  <span>{item.label}</span>
+                  <em>›</em>
+                </button>
+              ))}
+            </nav>
+            <div className="mobile-workspace-links">
+              <button onClick={() => navigateTo("notifications")}>
+                <i>●</i>
+                <span>Notifications</span>
+                {unread.length > 0 && <b>{unread.length}</b>}
+              </button>
+              <button onClick={() => navigateTo("profile")}>
+                <i>◌</i>
+                <span>Profile & settings</span>
+              </button>
+              <a href="/signout-with-chatgpt?return_to=/">
+                <i>↪</i>
+                <span>Log out</span>
+              </a>
+            </div>
+          </aside>
+        </div>
+      )}
       <section className="workspace">
         <header className="workspace-top">
-          <button className="mobile-brand" onClick={() => setView("overview")}>
+          <button className="mobile-brand" onClick={() => navigateTo("overview")}>
             ✦ SAHAAYA
           </button>
           <div className="crumb">
@@ -331,6 +401,15 @@ export default function Platform() {
             <b>{menu.find((item) => item.id === view)?.label ?? human(view)}</b>
           </div>
           <div className="top-actions">
+            <button
+              className="mobile-menu-button"
+              aria-label="Open all sections"
+              aria-expanded={mobileMenuOpen}
+              aria-controls="mobile-navigation"
+              onClick={() => setMobileMenuOpen(true)}
+            >
+              ☰
+            </button>
             <span className="signed-user">
               Signed in as <b>{data.user.name || "Member"}</b>
             </span>
@@ -340,7 +419,7 @@ export default function Platform() {
             >
               ●{unread.length > 0 && <span>{unread.length}</span>}
             </button>
-            <button className="avatar" onClick={() => setView("profile")}>
+            <button className="avatar" onClick={() => navigateTo("profile")}>
               {(data.user.name || "ME")
                 .split(" ")
                 .map((part: string) => part[0])
@@ -385,7 +464,7 @@ export default function Platform() {
                   critical={critical}
                   openRequest={() => setShowRequest(true)}
                   select={(item) => setSelected(item)}
-                  navigate={setView}
+                  navigate={navigateTo}
                 />
               )}
               {view === "requests" && (
@@ -456,6 +535,25 @@ export default function Platform() {
           )}
         </div>
       </section>
+      <nav className="mobile-tabbar" aria-label="Quick navigation">
+        {menu.slice(0, 3).map((item) => (
+          <button
+            key={item.id}
+            className={view === item.id ? "active" : ""}
+            onClick={() => navigateTo(item.id)}
+          >
+            <i>{item.icon}</i>
+            <span>{item.label}</span>
+          </button>
+        ))}
+        <button
+          className={mobileMenuOpen ? "active" : ""}
+          onClick={() => setMobileMenuOpen(true)}
+        >
+          <i>☰</i>
+          <span>More</span>
+        </button>
+      </nav>
       <button className="floating-help" onClick={() => setShowRequest(true)}>
         ＋ <span>Request help</span>
       </button>
@@ -590,7 +688,7 @@ function Overview({
     (o) => o.helper_id === data.user.id && o.status === "PENDING",
   );
   return (
-    <>
+    <div className="overview-home">
       <PageHead
         eyebrow="LIVE COMMUNITY NETWORK · UPDATED AUTOMATICALLY"
         title="Ask for help. Offer what you can."
@@ -613,6 +711,7 @@ function Overview({
           label="Active community needs"
           value={active.length}
           note={`${active.filter((r) => r.status === "OPEN").length} awaiting help`}
+          onClick={() => navigate("requests")}
         />
         <Stat
           icon="◆"
@@ -620,6 +719,7 @@ function Overview({
           label="Critical requests"
           value={critical.length}
           note="Shown first to nearby helpers"
+          onClick={() => navigate("requests")}
         />
         <Stat
           icon="◎"
@@ -627,6 +727,7 @@ function Overview({
           label="My active requests"
           value={mine.length}
           note="Manage offers and progress"
+          onClick={() => navigate("my_requests")}
         />
         <Stat
           icon="♡"
@@ -634,6 +735,7 @@ function Overview({
           label="My pending offers"
           value={offered.length}
           note="Waiting for requester approval"
+          onClick={() => navigate("requests")}
         />
         <Stat
           icon="✓"
@@ -641,6 +743,7 @@ function Overview({
           label="My completed history"
           value={data.history.length}
           note="Private to participants"
+          onClick={() => navigate("my_requests")}
         />
       </div>
       <div className="overview-grid">
@@ -674,7 +777,7 @@ function Overview({
         />
         <Activity items={data.activity} />
       </div>
-    </>
+    </div>
   );
 }
 
@@ -684,22 +787,30 @@ function Stat({
   label,
   value,
   note,
+  onClick,
 }: {
   icon: string;
   tone: string;
   label: string;
   value: number;
   note: string;
+  onClick: () => void;
 }) {
   return (
-    <article className="stat-card">
+    <button
+      type="button"
+      className="stat-card"
+      onClick={onClick}
+      aria-label={`Open ${label}`}
+    >
       <i className={tone}>{icon}</i>
       <div>
         <p>{label}</p>
         <strong>{value}</strong>
         <small>{note}</small>
       </div>
-    </article>
+      <span className="stat-arrow" aria-hidden="true">→</span>
+    </button>
   );
 }
 function CardHead({
