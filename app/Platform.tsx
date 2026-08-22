@@ -151,8 +151,10 @@ export default function Platform() {
     },
   );
   useEffect(() => {
-    const reduced = accessibility.reduceMotion || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const timer = window.setTimeout(() => setShowIntro(false), reduced ? 300 : 6000);
+    const timer = window.setTimeout(
+      () => setShowIntro(false),
+      accessibility.reduceMotion ? 300 : 6000,
+    );
     return () => window.clearTimeout(timer);
   }, [accessibility.reduceMotion]);
   const load = useCallback(
