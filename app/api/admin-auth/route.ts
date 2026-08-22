@@ -7,6 +7,7 @@ import {
   deriveAdminPassword,
   newAdminPasswordSalt,
   revokeAdminSession,
+  requireAdminSession,
   safeSecretEqual,
   validAdminPassword,
 } from "../../../lib/admin-auth";
@@ -78,6 +79,49 @@ export async function POST(request: Request) {
       return Response.json(
         { ok: true },
         { headers: { "Set-Cookie": clearAdminSessionCookie() } },
+      );
+    }
+
+    if (action === "logout_all") {
+      await requireAdminSession(user, request.headers);
+      const now = timestamp();
+      await database.batch([
+        database.prepare("DELETE FROM admin_sessions WHERE user_id=?").bind(user.id),
+        database.prepare("INSERT INTO audit_logs(actor_id,action,entity_type,entity_id,metadata,created_at) VALUES(?,'ADMIN_LOGOUT_ALL','USER',?,'{}',?)").bind(user.id, user.id, now),
+      ]);
+      return Response.json(
+        { ok: true },
+        { headers: { "Set-Cookie": clearAdminSessionCookie() } },
+      );
+    }
+
+    if (action === "change_password") {
+      await requireAdminSession(user, request.headers);
+      await consumeRateLimit(`admin-password:${user.id}`, 5, 60 * 60_000);
+      const currentPassword = String(body.currentPassword ?? "");
+      const newPassword = String(body.newPassword ?? "");
+      if (!validAdminPassword(newPassword))
+        return Response.json(
+          { error: "Use at least 12 characters with uppercase, lowercase, a number, and a symbol." },
+          { status: 400 },
+        );
+      const credential = await database.prepare("SELECT password_salt,password_hash,password_iterations FROM admin_credentials WHERE user_id=?").bind(user.id).first<{password_salt:string;password_hash:string;password_iterations:number}>();
+      if (!credential) return Response.json({ error: "Administrator credentials are not configured." }, { status: 409 });
+      const candidate = await deriveAdminPassword(currentPassword, credential.password_salt, credential.password_iterations);
+      if (!safeSecretEqual(candidate, credential.password_hash))
+        return Response.json({ error: "The current administrator password is incorrect." }, { status: 401 });
+      const salt = newAdminPasswordSalt();
+      const passwordHash = await deriveAdminPassword(newPassword, salt);
+      const now = timestamp();
+      await database.batch([
+        database.prepare("UPDATE admin_credentials SET password_salt=?,password_hash=?,password_iterations=?,updated_at=? WHERE user_id=?").bind(salt,passwordHash,ADMIN_PASSWORD_ITERATIONS,now,user.id),
+        database.prepare("DELETE FROM admin_sessions WHERE user_id=?").bind(user.id),
+        database.prepare("INSERT INTO audit_logs(actor_id,action,entity_type,entity_id,metadata,created_at) VALUES(?,'ADMIN_PASSWORD_CHANGED','USER',?,'{}',?)").bind(user.id,user.id,now),
+      ]);
+      const session = await createAdminSession(user.id);
+      return Response.json(
+        { ok: true, expiresAt: session.expiresAt },
+        { headers: { "Set-Cookie": adminSessionCookie(session.token) } },
       );
     }
 

@@ -26,6 +26,13 @@ export async function GET(request: Request) {
     const q = url.searchParams.get("q")?.trim().slice(0, 120) ?? "";
     const status = url.searchParams.get("status") ?? "ALL";
     const category = url.searchParams.get("category") ?? "ALL";
+    const scope = url.searchParams.get("scope") ?? "all";
+    const includeFeed = ["all", "overview", "requests", "volunteer", "organization"].includes(scope);
+    const includeMap = ["all", "overview", "map"].includes(scope);
+    const includeMine = ["all", "my_requests"].includes(scope);
+    const includeOffers = ["all", "overview", "requests", "my_requests", "map"].includes(scope);
+    const includeResources = ["all", "overview", "resources", "organization", "admin"].includes(scope);
+    const includeAdmin = ["all", "admin"].includes(scope);
     const cursor = url.searchParams.get("cursor")?.trim() || null;
     const conditions = ["hr.status NOT IN ('RESOLVED','CANCELLED')"];
     const bindings: unknown[] = [];
@@ -48,6 +55,7 @@ export async function GET(request: Request) {
       bindings.push(cursor);
     }
     const database = db();
+    const now = new Date().toISOString();
     const adminAccess =
       user.role === "ADMIN"
         ? await adminAccessStatus(user.id, request.headers)
@@ -71,41 +79,41 @@ export async function GET(request: Request) {
       reports,
       users,
     ] = await Promise.all([
-      database
+      includeFeed ? database
         .prepare(
           `SELECT hr.*,requester.name requester_name,helper.name helper_name FROM help_requests hr JOIN users requester ON requester.id=hr.requester_id LEFT JOIN users helper ON helper.id=hr.accepted_by WHERE ${conditions.join(" AND ")} ORDER BY CASE hr.urgency WHEN 'CRITICAL' THEN 1 WHEN 'URGENT' THEN 2 ELSE 3 END,hr.created_at DESC LIMIT 50`,
         )
         .bind(...bindings)
-        .all<RequestRow>(),
-      database
+        .all<RequestRow>() : Promise.resolve({ results: [] as RequestRow[] }),
+      includeMap ? database
         .prepare(
           "SELECT hr.id,hr.requester_id,hr.accepted_by,hr.category,hr.public_area,hr.people_count,hr.description,hr.urgency,hr.status,hr.approx_lat,hr.approx_lng,hr.helper_lat,hr.helper_lng,hr.eta_minutes,hr.delivery_started_at,hr.delivery_updated_at,hr.created_at,hr.updated_at,requester.name requester_name,helper.name helper_name FROM help_requests hr JOIN users requester ON requester.id=hr.requester_id LEFT JOIN users helper ON helper.id=hr.accepted_by WHERE hr.status NOT IN ('RESOLVED','CANCELLED') AND hr.approx_lat IS NOT NULL AND hr.approx_lng IS NOT NULL ORDER BY CASE hr.urgency WHEN 'CRITICAL' THEN 1 WHEN 'URGENT' THEN 2 ELSE 3 END,hr.created_at DESC LIMIT 500",
         )
-        .all<RequestRow>(),
-      database
+        .all<RequestRow>() : Promise.resolve({ results: [] as RequestRow[] }),
+      includeMine ? database
         .prepare(
           "SELECT hr.*,requester.name requester_name,helper.name helper_name FROM help_requests hr JOIN users requester ON requester.id=hr.requester_id LEFT JOIN users helper ON helper.id=hr.accepted_by WHERE hr.requester_id=? ORDER BY hr.created_at DESC LIMIT 100",
         )
         .bind(user.id)
-        .all<RequestRow>(),
-      database
+        .all<RequestRow>() : Promise.resolve({ results: [] as RequestRow[] }),
+      ["all", "overview", "my_requests"].includes(scope) ? database
         .prepare(
           "SELECT hr.*,requester.name requester_name,helper.name helper_name FROM help_requests hr JOIN users requester ON requester.id=hr.requester_id LEFT JOIN users helper ON helper.id=hr.accepted_by WHERE hr.status IN ('RESOLVED','CANCELLED') AND (hr.requester_id=? OR hr.accepted_by=?) ORDER BY hr.updated_at DESC LIMIT 30",
         )
         .bind(user.id, user.id)
-        .all<RequestRow>(),
-      database
+        .all<RequestRow>() : Promise.resolve({ results: [] as RequestRow[] }),
+      includeOffers ? database
         .prepare(
           "SELECT ho.*,u.name helper_name,CASE WHEN hr.requester_id=? THEN u.email ELSE NULL END helper_email,hr.requester_id FROM help_offers ho JOIN users u ON u.id=ho.helper_id JOIN help_requests hr ON hr.id=ho.request_id WHERE hr.requester_id=? OR ho.helper_id=? ORDER BY ho.created_at DESC LIMIT 100",
         )
         .bind(user.id, user.id, user.id)
-        .all(),
+        .all() : Promise.resolve({ results: [] }),
       database
         .prepare(
           "SELECT * FROM disaster_events WHERE status='ACTIVE' ORDER BY starts_at DESC LIMIT 20",
         )
         .all(),
-      adminAccess.authenticated
+      includeAdmin && adminAccess.authenticated
         ? database
             .prepare(
               "SELECT id,name,public_area,verified,contact_email,created_at FROM organizations ORDER BY verified ASC,name LIMIT 100",
@@ -118,50 +126,50 @@ export async function GET(request: Request) {
               )
               .all()
           : Promise.resolve({ results: [] }),
-      database
+      includeResources ? database
         .prepare(
-          "SELECT r.id,r.category,r.name,r.quantity,r.unit,r.public_area,r.updated_at,r.owner_id,u.name owner_name,CASE WHEN r.owner_id=? THEN 1 ELSE 0 END is_owner FROM resources r JOIN users u ON u.id=r.owner_id WHERE r.quantity>0 OR r.owner_id=? ORDER BY r.updated_at DESC LIMIT 100",
+          "SELECT r.id,r.category,r.name,r.quantity,r.unit,r.public_area,r.updated_at,r.owner_id,r.verification_status,r.verified_at,r.expires_at,u.name owner_name,CASE WHEN r.owner_id=? THEN 1 ELSE 0 END is_owner FROM resources r JOIN users u ON u.id=r.owner_id WHERE ((r.verification_status='VERIFIED' AND r.expires_at>?) OR r.owner_id=? OR ?=1) AND (r.quantity>0 OR r.owner_id=? OR ?=1) ORDER BY r.updated_at DESC LIMIT 100",
         )
-        .bind(user.id, user.id)
-        .all(),
+        .bind(user.id, now, user.id, adminAccess.authenticated ? 1 : 0, user.id, adminAccess.authenticated ? 1 : 0)
+        .all() : Promise.resolve({ results: [] }),
       database
         .prepare(
           "SELECT * FROM notifications WHERE user_id=? ORDER BY created_at DESC LIMIT 30",
         )
         .bind(user.id)
         .all(),
-      adminAccess.authenticated
+      includeAdmin && adminAccess.authenticated
         ? database
             .prepare(
               "SELECT ru.* FROM request_updates ru ORDER BY ru.created_at DESC LIMIT 50",
             )
             .all()
-        : database
+        : scope === "all" || scope === "overview" || includeMine ? database
             .prepare(
               "SELECT ru.* FROM request_updates ru JOIN help_requests hr ON hr.id=ru.request_id WHERE hr.status NOT IN ('RESOLVED','CANCELLED') AND (hr.requester_id=? OR hr.accepted_by=?) ORDER BY ru.created_at DESC LIMIT 20",
             )
             .bind(user.id, user.id)
-            .all(),
-      database
+            .all() : Promise.resolve({ results: [] }),
+      ["all", "overview"].includes(scope) ? database
         .prepare(
           "SELECT COUNT(*) total,SUM(CASE WHEN status NOT IN ('RESOLVED','CANCELLED') THEN 1 ELSE 0 END) active,SUM(CASE WHEN urgency='CRITICAL' AND status NOT IN ('RESOLVED','CANCELLED') THEN 1 ELSE 0 END) critical,SUM(CASE WHEN status='RESOLVED' THEN 1 ELSE 0 END) resolved FROM help_requests",
         )
-        .first(),
-      privileged
+        .first() : Promise.resolve({ total: 0, active: 0, critical: 0, resolved: 0 }),
+      (includeAdmin || scope === "volunteer" || scope === "organization") && privileged
         ? database
             .prepare(
               "SELECT * FROM volunteers ORDER BY available DESC,updated_at DESC LIMIT 100",
             )
             .all()
         : Promise.resolve({ results: [] }),
-      adminAccess.authenticated
+      includeAdmin && adminAccess.authenticated
         ? database
             .prepare(
               "SELECT reports.*,help_requests.category,help_requests.public_area FROM reports JOIN help_requests ON help_requests.id=reports.request_id WHERE reports.status='PENDING' ORDER BY reports.created_at DESC LIMIT 100",
             )
             .all()
         : Promise.resolve({ results: [] }),
-      adminAccess.authenticated
+      includeAdmin && adminAccess.authenticated
         ? database
             .prepare(
               "SELECT id,email,name,role,blocked_at,created_at FROM users ORDER BY created_at DESC LIMIT 200",
@@ -206,6 +214,9 @@ export async function GET(request: Request) {
       .bind(user.id, user.id)
       .all<{ id: string; requester_email: string; helper_email: string }>();
     const contacts = new Map(contactRows.results.map((row) => [row.id, row]));
+    const auditLogs = includeAdmin && adminAccess.authenticated
+      ? await database.prepare("SELECT al.id,al.action,al.entity_type,al.entity_id,al.created_at,u.name actor_name FROM audit_logs al JOIN users u ON u.id=al.actor_id ORDER BY al.created_at DESC LIMIT 100").all()
+      : { results: [] };
     const decorate = (row: RequestRow) => ({
       ...secure(row),
       ...(contacts.get(String(row.id)) ?? {}),
@@ -228,6 +239,7 @@ export async function GET(request: Request) {
         reports: reports.results,
         users: users.results,
         activity: activity.results,
+        auditLogs: auditLogs.results,
         metrics,
         nextCursor:
           requestRows.length === 50

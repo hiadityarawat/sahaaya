@@ -39,7 +39,7 @@ export async function POST(request:Request) {
     try{body=await request.json() as Record<string,unknown>}catch{return Response.json({error:"Invalid request body."},{status:400})}
     const database=db();const time=timestamp();
     const action=String(body.action??"");
-    const adminSensitiveActions=new Set(["update_status","availability","assign_volunteer","adjust_resource","delete_resource","review_report","verify_org","create_event","manage_user"]);
+    const adminSensitiveActions=new Set(["update_status","availability","assign_volunteer","adjust_resource","delete_resource","verify_resource","review_report","verify_org","create_event","manage_user"]);
     if(user.role==="ADMIN"&&adminSensitiveActions.has(action))await requireAdminSession(user,request.headers);
 
     if(body.action==="create_request"){
@@ -183,11 +183,17 @@ export async function POST(request:Request) {
       await consumeRateLimit(`resource:${user.id}`,20,60*60_000);
       const name=String(body.name||"").trim(),quantity=Number(body.quantity),category=String(body.category||"OTHER"),unit=String(body.unit||"items").trim(),area=String(body.publicArea||"").trim();
       if(name.length<2||name.length>120||!categories.includes(category)||!Number.isInteger(quantity)||quantity<1||quantity>1_000_000||unit.length<1||unit.length>30||area.length<2||area.length>120)return Response.json({error:"Enter a valid resource, available quantity, unit, and pickup area."},{status:400});
-      const id=makeId("resource");
+      const id=makeId("resource"),expiresAt=new Date(Date.now()+7*24*60*60_000).toISOString();
       await database.batch([
-        database.prepare("INSERT INTO resources(id,organization_id,event_id,category,name,quantity,unit,owner_id,public_area,created_at,updated_at) VALUES(?,'community',NULL,?,?,?,?,?,?,?,?)").bind(id,category,name,quantity,unit,user.id,area,time,time),
+        database.prepare("INSERT INTO resources(id,organization_id,event_id,category,name,quantity,unit,owner_id,public_area,verification_status,expires_at,created_at,updated_at) VALUES(?,'community',NULL,?,?,?,?,?,?,'PENDING',?,?,?)").bind(id,category,name,quantity,unit,user.id,area,expiresAt,time,time),
         database.prepare("INSERT INTO resource_transactions(resource_id,delta,note,actor_id,created_at) VALUES(?,?,?,?,?)").bind(id,quantity,"Initial user-confirmed availability",user.id,time),
       ]);return Response.json({ok:true,id});
+    }
+    if(body.action==="verify_resource"){
+      requireRole(user,["ADMIN"]);const id=String(body.id),status=String(body.status);if(!["VERIFIED","REJECTED"].includes(status))return Response.json({error:"Invalid resource verification status."},{status:400});
+      const target=await database.prepare("SELECT owner_id,name FROM resources WHERE id=?").bind(id).first<{owner_id:string;name:string}>();if(!target)return Response.json({error:"Resource listing not found."},{status:404});
+      const changed=await database.prepare("UPDATE resources SET verification_status=?,verified_by=?,verified_at=?,updated_at=? WHERE id=?").bind(status,user.id,time,time,id).run();if(!changed.meta.changes)return Response.json({error:"Resource listing changed before review."},{status:409});
+      await database.batch([database.prepare("INSERT INTO notifications(id,user_id,title,body,type,created_at) VALUES(?,?, 'Resource review completed',?,'RESOURCE_REVIEW',?)").bind(makeId("note"),target.owner_id,`${target.name} was ${status.toLowerCase()} by an administrator.`,time),database.prepare("INSERT INTO audit_logs(actor_id,action,entity_type,entity_id,metadata,created_at) VALUES(?,'VERIFY_RESOURCE','RESOURCE',?,?,?)").bind(user.id,id,JSON.stringify({status}),time)]);return Response.json({ok:true});
     }
     if(body.action==="adjust_resource"){
       const resourceId=String(body.id),delta=Number(body.delta),note=String(body.note||"").trim().slice(0,250);

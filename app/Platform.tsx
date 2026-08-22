@@ -10,6 +10,7 @@ type AccessibilityPreferences = {
   largeText: boolean;
   highContrast: boolean;
   reduceMotion: boolean;
+  browserAlerts: boolean;
 };
 type State = {
   user: Row;
@@ -27,6 +28,7 @@ type State = {
   reports: Row[];
   users: Row[];
   activity: Row[];
+  auditLogs: Row[];
   metrics: Row;
 };
 const empty: State = {
@@ -45,6 +47,7 @@ const empty: State = {
   reports: [],
   users: [],
   activity: [],
+  auditLogs: [],
   metrics: {},
 };
 const defaultAccessibility: AccessibilityPreferences = {
@@ -52,6 +55,7 @@ const defaultAccessibility: AccessibilityPreferences = {
   largeText: false,
   highContrast: false,
   reduceMotion: false,
+  browserAlerts: false,
 };
 const categories = [
   "ALL",
@@ -130,6 +134,7 @@ export default function Platform() {
   const [selected, setSelected] = useState<Row | null>(null);
   const [showRequest, setShowRequest] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+  const seenNotifications = useRef<Set<string>>(new Set());
   const [accessibility, setAccessibility] = useState<AccessibilityPreferences>(
     () => {
       if (typeof window === "undefined") return defaultAccessibility;
@@ -147,7 +152,7 @@ export default function Platform() {
     async (silent = false) => {
       if (!silent) setLoading(true);
       try {
-        const params = new URLSearchParams({ q, category, status });
+        const params = new URLSearchParams({ q, category, status, scope: view });
         const response = await fetchStateWithRetry(`/api/state?${params}`);
         if (!response.ok) throw new Error();
         setData(await response.json());
@@ -163,7 +168,7 @@ export default function Platform() {
         if (!silent) setLoading(false);
       }
     },
-    [q, category, status],
+    [q, category, status, view],
   );
   useEffect(() => {
     const timer = setTimeout(load, 200);
@@ -183,7 +188,10 @@ export default function Platform() {
   useEffect(() => {
     const refresh = () =>
       document.visibilityState === "visible" && navigator.onLine && load(true);
-    const timer = setInterval(refresh, 45000);
+    const activeDelivery = [...data.requests, ...data.myRequests].some((item) =>
+      ["ACCEPTED", "IN_PROGRESS"].includes(item.status),
+    );
+    const timer = setInterval(refresh, activeDelivery ? 15000 : 30000);
     window.addEventListener("online", refresh);
     document.addEventListener("visibilitychange", refresh);
     return () => {
@@ -191,7 +199,25 @@ export default function Platform() {
       window.removeEventListener("online", refresh);
       document.removeEventListener("visibilitychange", refresh);
     };
-  }, [load]);
+  }, [load, data.requests, data.myRequests]);
+  useEffect(() => {
+    const current = new Set(data.notifications.map((item) => String(item.id)));
+    if (!seenNotifications.current.size) {
+      seenNotifications.current = current;
+      return;
+    }
+    if (
+      accessibility.browserAlerts &&
+      typeof Notification !== "undefined" &&
+      Notification.permission === "granted"
+    ) {
+      const newest = data.notifications.find(
+        (item) => !item.read_at && !seenNotifications.current.has(String(item.id)),
+      );
+      if (newest) new Notification(newest.title, { body: newest.body, tag: newest.id });
+    }
+    seenNotifications.current = current;
+  }, [data.notifications, accessibility.browserAlerts]);
   async function act(payload: Row, success: string, refresh = true) {
     if (!navigator.onLine) {
       setToast("You are offline. Reconnect before sending this change.");
@@ -1254,9 +1280,9 @@ function ResourcesView({
   return (
     <>
       <PageHead
-        eyebrow="COMMUNITY-CONFIRMED AVAILABILITY"
+        eyebrow="ADMIN-VERIFIED AVAILABILITY"
         title="Available resources"
-        description="Every listing is posted and maintained by a signed-in community member. Sahaaya does not generate inventory."
+        description="Community members post real supplies. Listings become public only after an administrator verifies them and automatically expire after seven days."
         action={
           <button className="solid-btn" onClick={() => setAdding(true)}>
             ＋ List a resource
@@ -1291,6 +1317,7 @@ function ResourcesView({
                   Posted by {item.owner_name} · {item.public_area} · updated{" "}
                   {ago(item.updated_at)}
                 </small>
+                {item.is_owner && <Badge value={item.verification_status} />}
               </div>
               {item.is_owner && (
                 <span>
@@ -1587,6 +1614,7 @@ function AdminView({
           <b>{data.events.filter((e) => e.status === "ACTIVE").length}</b>
         </article>
       </div>
+      <AdminSecurity />
       <div className="admin-grid">
         <section className="surface admin-users-card">
           <CardHead eyebrow="ACCESS CONTROL" title="User administration" />
@@ -1742,6 +1770,25 @@ function AdminView({
           </div>
         </section>
         <section className="surface events-card">
+          <CardHead eyebrow="SUPPLY TRUST" title="Resource verification" />
+          <div className="review-list">
+            {data.resources.filter((item) => item.verification_status !== "VERIFIED").map((item) => (
+              <article key={item.id}>
+                <div>
+                  <Badge value={item.verification_status} />
+                  <b>{item.name} · {item.quantity} {item.unit}</b>
+                  <p>{item.owner_name} · {item.public_area}</p>
+                  <small>Expires {new Date(item.expires_at).toLocaleDateString()}</small>
+                </div>
+                <span>
+                  <button onClick={() => act({ action: "verify_resource", id: item.id, status: "VERIFIED" }, "Resource listing verified")}>Verify</button>
+                  <button className="danger" onClick={() => act({ action: "verify_resource", id: item.id, status: "REJECTED" }, "Resource listing rejected")}>Reject</button>
+                </span>
+              </article>
+            ))}
+          </div>
+        </section>
+        <section className="surface events-card">
           <CardHead eyebrow="DISASTER EVENTS" title="Event lifecycle" />
           <div className="event-list">
             {data.events.map((event) => (
@@ -1757,6 +1804,20 @@ function AdminView({
           </div>
         </section>
         <Activity items={data.activity} />
+        <section className="surface admin-audit-card">
+          <CardHead eyebrow="ACCOUNTABILITY" title="Administrator audit log" />
+          <div className="activity-list">
+            {data.auditLogs.slice(0, 12).map((entry) => (
+              <article key={entry.id}>
+                <i>◆</i>
+                <p>
+                  <b>{human(entry.action)}</b> · {entry.entity_type} {entry.entity_id}
+                  <small>{entry.actor_name} · {ago(entry.created_at)}</small>
+                </p>
+              </article>
+            ))}
+          </div>
+        </section>
       </div>
       {showEvent && (
         <CreateEvent
@@ -1771,6 +1832,73 @@ function AdminView({
         />
       )}
     </>
+  );
+}
+
+function AdminSecurity() {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [message, setMessage] = useState("");
+  const [working, setWorking] = useState(false);
+  const send = async (payload: Row) => {
+    const response = await fetch("/api/admin-auth", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error);
+    return result;
+  };
+  const changePassword = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (newPassword !== confirmation) {
+      setMessage("The new passwords do not match.");
+      return;
+    }
+    setWorking(true);
+    try {
+      await send({ action: "change_password", currentPassword, newPassword });
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmation("");
+      setMessage("Administrator password changed and all older sessions were closed.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Password change failed safely.");
+    } finally {
+      setWorking(false);
+    }
+  };
+  return (
+    <section className="surface admin-security-card">
+      <div>
+        <p className="overline">ADMIN SESSION SECURITY</p>
+        <h2>Credentials and active sessions</h2>
+        <p>Rotate the administrator password or immediately close every unlocked Admin session.</p>
+      </div>
+      <form onSubmit={changePassword}>
+        <input aria-label="Current administrator password" type="password" autoComplete="current-password" placeholder="Current password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required />
+        <input aria-label="New administrator password" type="password" autoComplete="new-password" placeholder="New strong password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} minLength={12} required />
+        <input aria-label="Confirm new administrator password" type="password" autoComplete="new-password" placeholder="Confirm new password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} minLength={12} required />
+        <button className="soft-btn" disabled={working}>{working ? "Changing…" : "Change password"}</button>
+      </form>
+      <button
+        className="danger-btn"
+        onClick={async () => {
+          if (!window.confirm("Log out every Admin dashboard session now?")) return;
+          try {
+            await send({ action: "logout_all" });
+            window.location.reload();
+          } catch (error) {
+            setMessage(error instanceof Error ? error.message : "Could not close sessions.");
+          }
+        }}
+      >
+        Log out all Admin sessions
+      </button>
+      {message && <p className="admin-security-message" role="status">{message}</p>}
+    </section>
   );
 }
 
@@ -1879,6 +2007,14 @@ function Profile({
 }) {
   const toggle = (key: keyof AccessibilityPreferences) =>
     setAccessibility((current) => ({ ...current, [key]: !current[key] }));
+  const enableBrowserAlerts = async () => {
+    if (typeof Notification === "undefined") return;
+    const permission = await Notification.requestPermission();
+    setAccessibility((current) => ({
+      ...current,
+      browserAlerts: permission === "granted",
+    }));
+  };
   return (
     <>
       <PageHead
@@ -2000,6 +2136,23 @@ function Profile({
               type="checkbox"
               checked={accessibility.reduceMotion}
               onChange={() => toggle("reduceMotion")}
+            />
+          </label>
+          <label htmlFor="browser-alerts">
+            <span>
+              <b>Instant browser alerts</b>
+              <small>Shows new assignments and delivery updates while Sahaaya is open.</small>
+            </span>
+            <input
+              id="browser-alerts"
+              aria-label="Instant browser alerts"
+              type="checkbox"
+              checked={accessibility.browserAlerts}
+              onChange={() =>
+                accessibility.browserAlerts
+                  ? toggle("browserAlerts")
+                  : void enableBrowserAlerts()
+              }
             />
           </label>
           <div className="security-note">

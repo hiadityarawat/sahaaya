@@ -384,6 +384,43 @@ test("admin dashboard requires hashed credentials and a protected admin session"
     200,
   );
 
+  assert.equal(
+    (
+      await api(
+        admin,
+        "/api/admin-auth",
+        {
+          action: "change_password",
+          currentPassword: "wrong-password",
+          newPassword: "Sahaaya#Admin2027",
+        },
+        cookie,
+      )
+    ).status,
+    401,
+  );
+  const changed = await api(
+    admin,
+    "/api/admin-auth",
+    {
+      action: "change_password",
+      currentPassword: password,
+      newPassword: "Sahaaya#Admin2027",
+    },
+    cookie,
+  );
+  assert.equal(changed.status, 200);
+  const rotatedCookie = changed.headers.get("set-cookie").split(";", 1)[0];
+  assert.notEqual(rotatedCookie, cookie);
+  assert.equal(
+    (await api(admin, "/api/state", undefined, cookie)).status,
+    200,
+  );
+  assert.equal(
+    (await (await api(admin, "/api/state", undefined, cookie)).json()).adminAccess.authenticated,
+    false,
+  );
+
   assert.equal((await api(resident, "/api/health")).status, 200);
   assert.equal(
     (
@@ -399,11 +436,11 @@ test("admin dashboard requires hashed credentials and a protected admin session"
   const logout = await api(
     admin,
     "/api/admin-auth",
-    { action: "logout" },
-    cookie,
+    { action: "logout_all" },
+    rotatedCookie,
   );
   assert.equal(logout.status, 200);
-  const relockedState = await api(admin, "/api/state", undefined, cookie);
+  const relockedState = await api(admin, "/api/state", undefined, rotatedCookie);
   assert.equal((await relockedState.json()).adminAccess.authenticated, false);
 });
 

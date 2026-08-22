@@ -57,6 +57,13 @@
       "when": 1787400000000,
       "tag": "0007_reliable_response_network",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1787403600000,
+      "tag": "0008_verified_resources",
+      "breakpoints": true
     }
   ]
 }
