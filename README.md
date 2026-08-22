@@ -36,6 +36,7 @@ Sahaaya is a multi-user community assistance platform for coordinating urgent he
 - Current device location captured only after the user grants permission while submitting.
 - Search and filtering by category, status, description, request ID, and area.
 - Critical requests are prioritized in the active queue.
+- A dedicated **My requests** section shows only the signed-in user's own active, completed, and cancelled requests, with direct access to each request's details.
 
 ### Help offers and matching
 
@@ -282,14 +283,14 @@ cp server/.env.example server/.env
 
 Important variables include:
 
-| Variable | Purpose |
-| --- | --- |
-| `PORT` | Express API port |
-| `DATABASE_URL` | PostgreSQL connection string |
-| `JWT_SECRET` | Secret used to sign API tokens |
-| `CORS_ORIGIN` | Allowed frontend origin |
-| `AWS_REGION` | AWS deployment region |
-| `UPLOAD_BUCKET` | S3 upload bucket |
+| Variable        | Purpose                        |
+| --------------- | ------------------------------ |
+| `PORT`          | Express API port               |
+| `DATABASE_URL`  | PostgreSQL connection string   |
+| `JWT_SECRET`    | Secret used to sign API tokens |
+| `CORS_ORIGIN`   | Allowed frontend origin        |
+| `AWS_REGION`    | AWS deployment region          |
+| `UPLOAD_BUCKET` | S3 upload bucket               |
 
 Never reuse example passwords or JWT secrets outside local development. Environment files are ignored by Git.
 
@@ -297,12 +298,12 @@ Never reuse example passwords or JWT secrets outside local development. Environm
 
 ### Deployed Sites routes
 
-| Method | Route | Purpose |
-| --- | --- | --- |
-| `GET` | `/api/state` | Return user-authorized requests, offers, contacts, tracking, history, and notifications |
+| Method | Route          | Purpose                                                                                                                |
+| ------ | -------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `GET`  | `/api/state`   | Return user-authorized requests, offers, contacts, tracking, history, and notifications                                |
 | `POST` | `/api/actions` | Create/cancel/delete requests, offer help, accept a helper, track delivery, confirm delivery, and update notifications |
-| `POST` | `/api/uploads` | Upload an authorized request image to R2 |
-| `GET` | `/api/health` | Check application and D1 readiness |
+| `POST` | `/api/uploads` | Upload an authorized request image to R2                                                                               |
+| `GET`  | `/api/health`  | Check application and D1 readiness                                                                                     |
 
 `/api/actions` uses an `action` field. Important actions include:
 
@@ -322,23 +323,23 @@ All protected routes reject anonymous requests and repeat ownership/participant 
 
 ### Optional Express routes
 
-| Method | Route | Purpose |
-| --- | --- | --- |
-| `POST` | `/api/auth/register` | Create an account with a hashed password |
-| `POST` | `/api/auth/login` | Authenticate and issue tokens |
-| `POST` | `/api/auth/refresh` | Rotate an authenticated session |
-| `POST` | `/api/auth/logout` | Revoke a refresh token |
-| `GET/POST` | `/api/requests` | Search or create help requests |
-| `GET` | `/api/requests/:publicId` | Return a privacy-safe request projection |
-| `POST` | `/api/requests/:publicId/accept` | Transactionally accept a request |
-| `PATCH` | `/api/requests/:publicId/status` | Apply an authorized lifecycle transition |
-| `GET` | `/api/resources` | List available inventory |
-| `PATCH` | `/api/resources/:id` | Apply a non-negative stock adjustment |
-| `GET` | `/api/notifications` | Return the signed-in user's inbox |
-| `GET` | `/api/disasters` | List disaster events |
-| `GET` | `/api/admin/reports` | Return the protected moderation queue |
-| `GET` | `/health` | Process health check |
-| `GET` | `/ready` | Dependency readiness check |
+| Method     | Route                            | Purpose                                  |
+| ---------- | -------------------------------- | ---------------------------------------- |
+| `POST`     | `/api/auth/register`             | Create an account with a hashed password |
+| `POST`     | `/api/auth/login`                | Authenticate and issue tokens            |
+| `POST`     | `/api/auth/refresh`              | Rotate an authenticated session          |
+| `POST`     | `/api/auth/logout`               | Revoke a refresh token                   |
+| `GET/POST` | `/api/requests`                  | Search or create help requests           |
+| `GET`      | `/api/requests/:publicId`        | Return a privacy-safe request projection |
+| `POST`     | `/api/requests/:publicId/accept` | Transactionally accept a request         |
+| `PATCH`    | `/api/requests/:publicId/status` | Apply an authorized lifecycle transition |
+| `GET`      | `/api/resources`                 | List available inventory                 |
+| `PATCH`    | `/api/resources/:id`             | Apply a non-negative stock adjustment    |
+| `GET`      | `/api/notifications`             | Return the signed-in user's inbox        |
+| `GET`      | `/api/disasters`                 | List disaster events                     |
+| `GET`      | `/api/admin/reports`             | Return the protected moderation queue    |
+| `GET`      | `/health`                        | Process health check                     |
+| `GET`      | `/ready`                         | Dependency readiness check               |
 
 ## Database model
 

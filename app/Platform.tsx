@@ -8,6 +8,7 @@ type Row = Record<string, any>;
 type State = {
   user: Row;
   requests: Row[];
+  myRequests: Row[];
   history: Row[];
   offers: Row[];
   events: Row[];
@@ -22,6 +23,7 @@ type State = {
 const empty: State = {
   user: {},
   requests: [],
+  myRequests: [],
   history: [],
   offers: [],
   events: [],
@@ -163,6 +165,7 @@ export default function Platform() {
   const unread = data.notifications.filter((item) => !item.read_at);
   const menu = [
     { id: "overview", label: "Community feed", icon: "⌂" },
+    { id: "my_requests", label: "My requests", icon: "◌" },
     { id: "requests", label: "Requests & offers", icon: "◎" },
     { id: "map", label: "Live help map", icon: "⌖" },
     { id: "resources", label: "Available resources", icon: "◉" },
@@ -293,6 +296,13 @@ export default function Platform() {
                   setCategory={setCategory}
                   status={status}
                   setStatus={setStatus}
+                  select={setSelected}
+                  openRequest={() => setShowRequest(true)}
+                />
+              )}
+              {view === "my_requests" && (
+                <MyRequests
+                  items={data.myRequests}
                   select={setSelected}
                   openRequest={() => setShowRequest(true)}
                 />
@@ -623,6 +633,97 @@ function MapCard({ requests }: { requests: Row[] }) {
         }))}
       />
     </section>
+  );
+}
+
+function MyRequests({
+  items,
+  select,
+  openRequest,
+}: {
+  items: Row[];
+  select: (item: Row) => void;
+  openRequest: () => void;
+}) {
+  const active = items.filter(
+    (item) => !["RESOLVED", "CANCELLED"].includes(item.status),
+  );
+  const completed = items.filter((item) => item.status === "RESOLVED");
+  const cancelled = items.filter((item) => item.status === "CANCELLED");
+
+  return (
+    <>
+      <PageHead
+        eyebrow="PRIVATE REQUEST HISTORY"
+        title="My requests"
+        description="Only requests created by your signed-in account appear here. Open any request to review offers, delivery progress, or its final status."
+        action={
+          <button className="solid-btn" onClick={openRequest}>
+            ＋ New request
+          </button>
+        }
+      />
+      <div className="mini-stats">
+        <article>
+          <small>ALL MY REQUESTS</small>
+          <b>{items.length}</b>
+        </article>
+        <article>
+          <small>ACTIVE</small>
+          <b>{active.length}</b>
+        </article>
+        <article>
+          <small>COMPLETED</small>
+          <b>{completed.length}</b>
+        </article>
+        <article>
+          <small>CANCELLED</small>
+          <b>{cancelled.length}</b>
+        </article>
+      </div>
+      <section className="surface data-card">
+        <div className="table-title">
+          <b>Your request history</b>
+          <small>Newest first · private to your account</small>
+        </div>
+        {items.length ? (
+          <div className="request-table">
+            <div className="tr th">
+              <span>Request</span>
+              <span>Area</span>
+              <span>People</span>
+              <span>Urgency</span>
+              <span>Status</span>
+              <span>Created</span>
+              <span />
+            </div>
+            {items.map((item) => (
+              <button className="tr" key={item.id} onClick={() => select(item)}>
+                <span>
+                  <b>{human(item.category)}</b>
+                  <small>{item.id}</small>
+                </span>
+                <span>{item.public_area}</span>
+                <span>{item.people_count}</span>
+                <span>
+                  <Badge value={item.urgency} />
+                </span>
+                <span>
+                  <Badge value={item.status} />
+                </span>
+                <span>{ago(item.created_at)}</span>
+                <span>›</span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <Empty
+            title="You have not created a request yet"
+            text="When you request help, it will appear here automatically and remain in your private history after completion or cancellation."
+          />
+        )}
+      </section>
+    </>
   );
 }
 
@@ -1555,7 +1656,9 @@ function RequestModal({
   const [draft] = useState<Row>(() => {
     if (typeof window === "undefined") return {};
     try {
-      return JSON.parse(sessionStorage.getItem("sahaaya_request_draft") || "{}");
+      return JSON.parse(
+        sessionStorage.getItem("sahaaya_request_draft") || "{}",
+      );
     } catch {
       return {};
     }
@@ -1627,7 +1730,11 @@ function RequestModal({
         >
           <label>
             Help category
-            <select name="category" required defaultValue={draft.category || ""}>
+            <select
+              name="category"
+              required
+              defaultValue={draft.category || ""}
+            >
               <option value="" disabled>
                 Select category
               </option>
@@ -1755,10 +1862,13 @@ function RequestDetail({
   const [codeExpiresAt, setCodeExpiresAt] = useState("");
   const [tracking, setTracking] = useState(false);
   const watchRef = useRef<number | null>(null);
-  const lastLocationRef = useRef<{ at: number; lat: number; lng: number } | null>(
-    null,
-  );
+  const lastLocationRef = useRef<{
+    at: number;
+    lat: number;
+    lng: number;
+  } | null>(null);
   const locationRequestPending = useRef(false);
+  const activeMatch = ["ACCEPTED", "IN_PROGRESS"].includes(item.status);
   const offers = data.offers.filter((o) => o.request_id === item.id);
   const myOffer = offers.find((o) => o.helper_id === data.user.id);
   const acceptedContact = item.is_owner
@@ -1900,7 +2010,7 @@ function RequestDetail({
               </small>
             </section>
           )}
-          {item.is_helper && item.accepted_by && (
+          {item.is_helper && activeMatch && (
             <section className="delivery-code-card">
               <p className="overline">ONE-TIME DELIVERY CODE</p>
               {generatedCode ? (
@@ -1908,8 +2018,8 @@ function RequestDetail({
                   <strong>{generatedCode}</strong>
                   <p>
                     Tell this code to the requester only after delivery. It
-                    expires at {new Date(codeExpiresAt).toLocaleTimeString()} and
-                    is never stored in readable form.
+                    expires at {new Date(codeExpiresAt).toLocaleTimeString()}{" "}
+                    and is never stored in readable form.
                   </p>
                 </>
               ) : (
@@ -1938,7 +2048,7 @@ function RequestDetail({
               )}
             </section>
           )}
-          {item.is_owner && item.accepted_by && (
+          {item.is_owner && activeMatch && (
             <section className="confirm-delivery">
               <p className="overline">CONFIRM SAFE DELIVERY</p>
               <h4>Enter the helper&apos;s 6-digit code</h4>
@@ -1978,7 +2088,7 @@ function RequestDetail({
               </div>
             </section>
           )}
-          {item.accepted_by && (
+          {activeMatch && (
             <section className="tracking-card">
               <div className="tracking-head">
                 <div>
@@ -2139,7 +2249,7 @@ function RequestDetail({
               },
             )}
           </div>
-          {item.accepted_by && (item.is_owner || item.is_helper) && (
+          {activeMatch && (item.is_owner || item.is_helper) && (
             <>
               <h4>Update progress</h4>
               <textarea
