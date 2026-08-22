@@ -1,0 +1,1 @@
+import { redirect } from "next/navigation"; import { sessionUser } from "../../../lib/user-auth"; import SecuritySettings from "./SecuritySettings"; export const dynamic="force-dynamic"; export default async function Page(){const user=await sessionUser().catch(()=>null);if(!user)redirect("/login");return <SecuritySettings name={user.name} email={user.email}/>}

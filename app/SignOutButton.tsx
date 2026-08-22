@@ -1,0 +1,1 @@
+"use client"; import { ReactNode } from "react"; export default function SignOutButton({className,children="Log out"}:{className?:string;children?:ReactNode}){return <button className={className} onClick={async()=>{await fetch("/api/auth/logout",{method:"POST"});location.assign("/")}}>{children}</button>}

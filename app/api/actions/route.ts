@@ -13,6 +13,7 @@ import {
 } from "../../../lib/site-db";
 import { requireAdminSession } from "../../../lib/admin-auth";
 import { env } from "cloudflare:workers";
+import { sameOrigin } from "../../../lib/user-auth";
 
 const allowedStatus=["ACCEPTED","IN_PROGRESS"];
 const categories=["FOOD","WATER","MEDICAL","SHELTER","RESCUE","CLOTHES","TRANSPORT","OTHER"];
@@ -32,7 +33,7 @@ function actionError(error:unknown){
 
 export async function POST(request:Request) {
   try {
-    const origin=request.headers.get("origin");if(origin&&origin!==new URL(request.url).origin)return Response.json({error:"Cross-site requests are not allowed."},{status:403});
+    if(!sameOrigin(request))return Response.json({error:"Cross-site requests are not allowed."},{status:403});
     await ensureDatabase();
     const user=await currentUser();
     let body:Record<string,unknown>;
@@ -235,7 +236,7 @@ export async function POST(request:Request) {
       if(operation==="block"||operation==="unblock")await database.prepare("UPDATE users SET blocked_at=? WHERE id=?").bind(operation==="block"?time:null,targetId).run();
       else if(operation==="set_role"){const role=String(body.role);if(!["RESIDENT","VOLUNTEER","ORGANIZATION","ADMIN"].includes(role))return Response.json({error:"Invalid user role."},{status:400});await database.prepare("UPDATE users SET role=? WHERE id=?").bind(role,targetId).run();}
       else return Response.json({error:"Invalid user-management action."},{status:400});
-      await database.batch([database.prepare("DELETE FROM admin_sessions WHERE user_id=?").bind(targetId),database.prepare("INSERT INTO audit_logs(actor_id,action,entity_type,entity_id,metadata,created_at) VALUES(?,'MANAGE_USER','USER',?,?,?)").bind(user.id,targetId,JSON.stringify({operation,role:body.role??null}),time)]);return Response.json({ok:true});
+      await database.batch([database.prepare("DELETE FROM admin_sessions WHERE user_id=?").bind(targetId),database.prepare("DELETE FROM user_sessions WHERE user_id=?").bind(targetId),database.prepare("INSERT INTO audit_logs(actor_id,action,entity_type,entity_id,metadata,created_at) VALUES(?,'MANAGE_USER','USER',?,?,?)").bind(user.id,targetId,JSON.stringify({operation,role:body.role??null}),time)]);return Response.json({ok:true});
     }
     if(body.action==="read_notifications"){await database.prepare("UPDATE notifications SET read_at=? WHERE user_id=? AND read_at IS NULL").bind(time,user.id).run();return Response.json({ok:true})}
     return Response.json({error:"Unknown action."},{status:400});

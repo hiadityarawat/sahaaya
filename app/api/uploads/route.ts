@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { AuthenticationRequiredError, AuthorizationError, RateLimitError, consumeRateLimit, currentUser, db, ensureDatabase, timestamp } from "../../../lib/site-db";
+import { sameOrigin } from "../../../lib/user-auth";
 
 const types=new Set(["image/jpeg","image/png","image/webp"]);
 function validSignature(bytes:Uint8Array,type:string){
@@ -11,7 +12,7 @@ function validSignature(bytes:Uint8Array,type:string){
 
 export async function POST(request:Request){
   try{
-    const origin=request.headers.get("origin");if(origin&&origin!==new URL(request.url).origin)return Response.json({error:"Cross-site requests are not allowed."},{status:403});
+    if(!sameOrigin(request))return Response.json({error:"Cross-site requests are not allowed."},{status:403});
     await ensureDatabase();const user=await currentUser();await consumeRateLimit(`upload:${user.id}`,10,60*60_000);
     const form=await request.formData();const file=form.get("file");const requestId=String(form.get("requestId")||"");
     if(!(file instanceof File)||!requestId)return Response.json({error:"File and request are required."},{status:400});

@@ -21,6 +21,7 @@ import {
   ensureDatabase,
   timestamp,
 } from "../../../lib/site-db";
+import { sameOrigin } from "../../../lib/user-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -58,8 +59,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const origin = request.headers.get("origin");
-    if (origin && origin !== new URL(request.url).origin)
+    if (!sameOrigin(request))
       return Response.json({ error: "Cross-site requests are not allowed." }, { status: 403 });
     await ensureDatabase();
     const user = await currentUser();

@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import test from "node:test";
 import { Miniflare } from "miniflare";
+import { createHash } from "node:crypto";
 
 async function applyMigrations(DB, files) {
   for (const file of files) {
@@ -45,13 +46,22 @@ async function testEnvironment() {
     .filter((name) => /^\d+.*\.sql$/.test(name))
     .sort();
   await applyMigrations(DB, files);
+  const sessionCookies = new Map();
+  async function ensureUser(user) {
+    if (sessionCookies.has(user.id)) return sessionCookies.get(user.id);
+    const now = new Date().toISOString(), token = `test-token-${user.id}`;
+    const tokenHash = createHash("sha256").update(token).digest("hex");
+    await DB.prepare("INSERT INTO users(id,email,name,role,email_verified,created_at,updated_at) VALUES(?,?,?,'RESIDENT',1,?,?) ON CONFLICT(id) DO NOTHING").bind(user.id,user.email,user.id,now,now).run();
+    await DB.prepare("INSERT INTO user_sessions(id,user_id,token_hash,created_at,expires_at,last_used_at,user_agent) VALUES(?,?,?,?,?,?,?)").bind(`session-${user.id}`,user.id,tokenHash,now,new Date(Date.now()+3600000).toISOString(),now,"Test browser").run();
+    const value=`sahaaya_session=${token}`;sessionCookies.set(user.id,value);return value;
+  }
   async function api(user, path, body, cookie) {
+    const userCookie = await ensureUser(user);
     const headers = {
-      "oai-authenticated-user-id": user.id,
-      "oai-authenticated-user-email": user.email,
+      cookie: cookie ? `${userCookie}; ${cookie}` : userCookie,
+      origin: "http://localhost",
     };
     if (body) headers["content-type"] = "application/json";
-    if (cookie) headers.cookie = cookie;
     return runtime.dispatchFetch(`http://localhost${path}`, {
       method: body ? "POST" : "GET",
       headers,
@@ -59,14 +69,15 @@ async function testEnvironment() {
     });
   }
   async function upload(user, requestId, file) {
+    const userCookie = await ensureUser(user);
     const form = new FormData();
     form.set("requestId", requestId);
     form.set("file", file);
     const request = new Request("http://localhost/api/uploads", {
       method: "POST",
       headers: {
-        "oai-authenticated-user-id": user.id,
-        "oai-authenticated-user-email": user.email,
+        cookie: userCookie,
+        origin: "http://localhost",
       },
       body: form,
     });
@@ -481,4 +492,20 @@ test("hardening migration removes only known placeholders and preserves unknown 
       "SELECT quantity FROM resources WHERE id='resource-unknown'",
     ).first(),
   );
+});
+
+test("independent registration, login, session validation, blocking, and logout are enforced", async (t) => {
+  const { runtime, DB } = await testEnvironment();t.after(()=>runtime.dispose());
+  const post=(path,body,cookie)=>runtime.dispatchFetch(`http://localhost${path}`,{method:"POST",headers:{origin:"http://localhost","content-type":"application/json",...(cookie?{cookie}:{})},body:JSON.stringify(body)});
+  assert.equal((await post("/api/auth/register",{name:"A",email:"bad",password:"weak",confirmPassword:"weak"})).status,400);
+  const created=await post("/api/auth/register",{name:"Independent User",email:"User@Example.Test",password:"Securepass123",confirmPassword:"Securepass123"});assert.equal(created.status,201);const cookie=created.headers.get("set-cookie");assert.match(cookie,/sahaaya_session=.*HttpOnly.*Secure.*SameSite=Strict/);const stored=await DB.prepare("SELECT password_hash,password_salt,email FROM users WHERE email='user@example.test'").first();assert.ok(stored.password_hash);assert.ok(stored.password_salt);assert.equal(stored.email,"user@example.test");
+  assert.equal((await post("/api/auth/register",{name:"Duplicate User",email:"user@example.test",password:"Securepass123",confirmPassword:"Securepass123"})).status,409);
+  assert.equal((await post("/api/auth/login",{email:"user@example.test",password:"wrong-password"})).status,401);
+  const login=await post("/api/auth/login",{email:"USER@example.test",password:"Securepass123"});assert.equal(login.status,200);const loginCookie=login.headers.get("set-cookie");
+  const me=await runtime.dispatchFetch("http://localhost/api/auth/me",{headers:{cookie:loginCookie}});assert.equal(me.status,200);const meData=await me.json();assert.equal(meData.user.email,"user@example.test");assert.equal(meData.user.password_hash,undefined);
+  const sessions=await runtime.dispatchFetch("http://localhost/api/auth/sessions",{headers:{cookie:loginCookie}});assert.equal(sessions.status,200);assert.ok((await sessions.json()).sessions.length>=2);
+  await DB.prepare("UPDATE users SET blocked_at=? WHERE email=?").bind(new Date().toISOString(),"user@example.test").run();assert.equal((await runtime.dispatchFetch("http://localhost/api/auth/me",{headers:{cookie:loginCookie}})).status,403);
+  await DB.prepare("UPDATE users SET blocked_at=NULL WHERE email=?").bind("user@example.test").run();const logout=await post("/api/auth/logout",{},cookie);assert.equal(logout.status,200);assert.match(logout.headers.get("set-cookie"),/Max-Age=0/);
+  assert.equal((await post("/api/auth/login",{"email":"' OR 1=1 --","password":"Securepass123"})).status,401);
+  assert.equal((await runtime.dispatchFetch("http://localhost/api/auth/logout",{method:"POST",headers:{origin:"https://attacker.test",cookie:loginCookie}})).status,403);
 });

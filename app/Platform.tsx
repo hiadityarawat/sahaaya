@@ -3,6 +3,7 @@
 
 import { type CSSProperties, FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import LiveHelpMap from "./LiveHelpMap";
+import SignOutButton from "./SignOutButton";
 
 type Row = Record<string, any>;
 type AccessibilityPreferences = {
@@ -324,9 +325,9 @@ export default function Platform() {
           <button onClick={() => navigateTo("profile")}>
             <i>◌</i> Profile & settings
           </button>
-          <a className="side-logout" href="/signout-with-chatgpt?return_to=/">
+          <SignOutButton className="side-logout">
             <i>↪</i> Log out
-          </a>
+          </SignOutButton>
         </div>
         <div className="system-state">
           <i />
@@ -387,10 +388,10 @@ export default function Platform() {
                 <i>◌</i>
                 <span>Profile & settings</span>
               </button>
-              <a href="/signout-with-chatgpt?return_to=/">
+              <SignOutButton>
                 <i>↪</i>
                 <span>Log out</span>
-              </a>
+              </SignOutButton>
             </div>
           </aside>
         </div>
@@ -432,12 +433,9 @@ export default function Platform() {
                 .join("")
                 .slice(0, 2)}
             </button>
-            <a
-              className="header-logout"
-              href="/signout-with-chatgpt?return_to=/"
-            >
+            <SignOutButton className="header-logout">
               Log out
-            </a>
+            </SignOutButton>
           </div>
         </header>
         {showNotifications && (
@@ -1705,7 +1703,7 @@ function AdminGate({
             </button>
           </form>
           <div className="privacy-copy">
-            Your ChatGPT identity and administrator credentials must both match.
+            Your Sahaaya account, ADMIN role, and administrator credentials must all match.
             Repeated failed attempts are temporarily limited.
           </div>
         </section>
@@ -2193,9 +2191,8 @@ function Profile({
           <h2>{user.name}</h2>
           <p>{user.email}</p>
           <Badge value={role.toUpperCase()} />
-          <a className="soft-btn" href="/signout-with-chatgpt?return_to=/">
-            Sign out securely
-          </a>
+          <a className="soft-btn" href="/settings/security">Account security</a>
+          <SignOutButton className="soft-btn">Sign out securely</SignOutButton>
         </section>
         <section className="surface settings-card">
           <CardHead

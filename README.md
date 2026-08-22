@@ -60,7 +60,7 @@ Sahaaya is a multi-user community assistance platform for coordinating urgent he
 ### Protected administration
 
 - The Admin dashboard appears only for accounts with the server-side `ADMIN` role.
-- Each administrator creates a unique administrator ID and strong password after signing in with ChatGPT.
+- Each administrator creates a unique administrator ID and strong password after signing in with an independent Sahaaya account.
 - Passwords are stored only as salted PBKDF2 hashes; readable passwords and session tokens are never stored.
 - Privileged sessions use secure, HTTP-only, same-site cookies, expire after eight hours, and can be locked immediately.
 - Administrator controls cover user roles and blocking, report review, organization verification, disaster events, volunteer assignment, and protected resource operations.
@@ -133,6 +133,31 @@ Helper arrives, generates a short-lived code, and tells requester
 Requester enters code → delivery confirmed → request resolved
 ```
 
+## Authentication architecture
+
+Sahaaya owns its authentication independently. The public Sites deployment no longer requires a ChatGPT account.
+
+```text
+Browser → Login/Register → Authentication API → PBKDF2 password verification
+        → server-side D1 session → HttpOnly cookie → protected Sahaaya APIs
+```
+
+- Passwords use per-account random salts and PBKDF2-SHA-256 with 210,000 iterations. Plaintext passwords are never stored or logged.
+- The browser receives a random session token only in the `sahaaya_session` cookie. D1 stores only its SHA-256 hash.
+- The cookie is `HttpOnly`, `Secure`, `SameSite=Strict`, limited to `/`, and expires after 30 days.
+- `/api/auth/me` is the authoritative current-user endpoint. Frontend state never supplies user IDs or roles for authorization.
+- `/settings/security` lists safe device information, allows revoking other sessions, changing the password, and signing out everywhere.
+- Password changes keep the current session and revoke other sessions. Account blocking revokes user and administrator sessions.
+- Login and registration are rate-limited. Cookie-authenticated state changes require a same-origin request and use parameterized D1 queries.
+- Normal accounts retain the existing `RESIDENT` role; elevated roles remain server-controlled.
+- Administrator access still requires a Sahaaya session, the database `ADMIN` role, and the additional eight-hour administrator authentication layer.
+
+Authentication tables are `users`, `user_sessions`, `password_reset_tokens`, and `email_verification_tokens`. Reset and verification tokens store hashes, expiration, and consumption time. Email delivery is not currently configured, so the application explicitly reports that no recovery email was sent; a real provider must be connected before issuing public links.
+
+Existing provider-created user rows and IDs are preserved by migration `0009_independent_authentication.sql`, so requests, offers, resources, notifications, and history remain attached to their original owners. Those legacy rows have no invented password. They must be converted through verified recovery or an administrator-assisted process after an email provider is configured; registering the same email is rejected to prevent account takeover.
+
+Apply committed D1 migrations in numeric order. Production releases package the same `drizzle/` migrations. Back up D1 before production migration; recovery uses the pre-migration backup because SQLite cannot directly remove added columns.
+
 ## Privacy and safety
 
 Sahaaya follows a privacy-by-default design:
@@ -165,7 +190,7 @@ Sahaaya follows a privacy-by-default design:
 - Cloudflare R2 for request image uploads
 - Leaflet 1.9 with OpenStreetMap tiles
 - CSS responsive design
-- ChatGPT/Sites sign-in identity headers
+- Independent Sahaaya email/password authentication with hashed server-side sessions
 
 ### Included production-service foundation
 
@@ -314,6 +339,8 @@ Never reuse example passwords or JWT secrets outside local development. Environm
 | `POST` | `/api/uploads` | Upload an authorized request image to R2                                                                               |
 | `GET`  | `/api/health`  | Check application and D1 readiness                                                                                     |
 
+Authentication routes include `/api/auth/register`, `/api/auth/login`, `/api/auth/me`, `/api/auth/logout`, `/api/auth/logout-all`, `/api/auth/sessions`, `/api/auth/change-password`, `/api/auth/forgot-password`, `/api/auth/reset-password`, and `/api/auth/verify-email`. Registration returns `201`; duplicate accounts return `409`; invalid credentials return `401`; forbidden or blocked access returns `403`; and rate limits return `429`.
+
 `/api/actions` uses an `action` field. Important actions include:
 
 - `create_request`
@@ -355,6 +382,8 @@ All protected routes reject anonymous requests and repeat ownership/participant 
 The deployed D1 schema includes:
 
 - `users` — stable signed-in identities and roles
+- `user_sessions` — hashed, expiring multi-device sessions
+- `password_reset_tokens` and `email_verification_tokens` — hashed, expiring, single-use authentication tokens
 - `disaster_events` — active and historical response events
 - `help_requests` — needs, ownership, status, location, accepted helper, ETA, and delivery confirmation
 - `help_offers` — helper messages with pending/accepted/declined status

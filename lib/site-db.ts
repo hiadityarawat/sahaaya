@@ -1,5 +1,7 @@
 import { env } from "cloudflare:workers";
-import { getChatGPTUser } from "../app/chatgpt-auth";
+import { requireUser } from "./user-auth";
+export { AuthenticationRequiredError, AuthorizationError, RateLimitError } from "./errors";
+import { AuthorizationError, RateLimitError } from "./errors";
 
 type D1 = typeof env.DB;
 const now = () => new Date().toISOString();
@@ -10,23 +12,12 @@ export function db(): D1 {
   return env.DB;
 }
 
-export class AuthenticationRequiredError extends Error {}
-export class AuthorizationError extends Error {}
-export class RateLimitError extends Error {}
-
 // Versioned deployment migrations own the schema. This helper intentionally
 // performs no DDL during user requests.
 export async function ensureDatabase() { db(); }
 
 export async function currentUser() {
-  const signedIn=await getChatGPTUser();
-  if(!signedIn) throw new AuthenticationRequiredError("Sign in to continue.");
-  const name=signedIn.fullName ?? signedIn.email.split("@")[0];
-  await db().prepare("INSERT INTO users(id,email,name,role,email_verified,created_at) VALUES(?,?,?,'RESIDENT',1,?) ON CONFLICT(id) DO UPDATE SET email=excluded.email,name=excluded.name").bind(signedIn.userId,signedIn.email,name,now()).run();
-  const stored=await db().prepare("SELECT id,email,name,role,blocked_at FROM users WHERE id=?").bind(signedIn.userId).first<{id:string;email:string;name:string;role:string;blocked_at:string|null}>();
-  if(!stored) throw new Error("Unable to load signed-in profile.");
-  if(stored.blocked_at) throw new AuthorizationError("This account is currently restricted.");
-  return stored;
+  return requireUser();
 }
 
 export function requireRole(user:{role:string},roles:string[]) {
