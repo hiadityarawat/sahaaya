@@ -19,6 +19,8 @@ jobs:
         with: { node-version: 22, cache: npm, cache-dependency-path: "**/package-lock.json" }
       - run: npm ci
       - run: npm run build
+      - run: npm run lint
+      - run: node --test tests/*.test.mjs
       - run: npm ci
         working-directory: server
       - run: for migration in db/*.sql; do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"; done
@@ -29,7 +31,7 @@ jobs:
         env: { NODE_ENV: test, JWT_SECRET: test-secret-with-at-least-32-characters, DATABASE_URL: "postgresql://sahaaya:test-only-password@localhost:5432/sahaaya_test" }
       - run: docker build -t sahaaya-api:test ./server
   deploy-api:
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && vars.AWS_DEPLOY_ENABLED == 'true'
     needs: validate
     runs-on: ubuntu-latest
     steps:
@@ -52,7 +54,7 @@ jobs:
       - uses: aws-actions/amazon-ecs-deploy-task-definition@v2
         with: { task-definition: "${{ steps.render.outputs.task-definition }}", service: "${{ vars.ECS_SERVICE }}", cluster: "${{ vars.ECS_CLUSTER }}", wait-for-service-stability: true }
   deploy-frontend:
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && vars.AWS_DEPLOY_ENABLED == 'true'
     needs: validate
     runs-on: ubuntu-latest
     steps:

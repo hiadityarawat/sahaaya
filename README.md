@@ -57,12 +57,21 @@ Sahaaya is a multi-user community assistance platform for coordinating urgent he
 
 ### Delivery confirmation
 
-- A six-digit, one-time delivery code is generated when a helper is accepted.
-- Only the accepted helper can view the code.
+- The accepted helper generates a six-digit, one-time code only when delivery is ready.
+- The readable code is returned once and only a SHA-256 hash is stored.
+- Codes expire after 45 minutes, are rate-limited, and lock after repeated incorrect attempts.
 - The helper gives the code to the requester after arriving and completing the handoff.
 - Only the original requester's account can enter the code.
 - A correct code resolves the request and removes it from the active feed.
 - Directly marking a matched request as resolved is blocked; confirmation must use the code.
+
+### Real community resources
+
+- The production database contains no generated resource quantities, organizations, or disaster events.
+- Signed-in members list only supplies they genuinely have available, including quantity, unit, and a general pickup area.
+- Every resource shows the posting member and its latest update time.
+- Only the posting member can change or remove a resource listing.
+- Quantity changes use a non-negative ledger and zero-stock listings disappear from other users.
 
 ### Request control
 
@@ -78,7 +87,8 @@ Sahaaya is a multi-user community assistance platform for coordinating urgent he
 - Independent user identity across phones, tablets, and computers.
 - Clearly visible logout controls in the header, sidebar, and profile.
 - Personal notification inbox for new offers, accepted offers, progress, and delivery confirmation.
-- Automatic refresh keeps the network and delivery progress current.
+- Adaptive refresh pauses in background or offline tabs and reconnects automatically.
+- Unsubmitted request text is retained only in the current browser tab.
 
 ## How the workflow works
 
@@ -101,13 +111,13 @@ Requester accepts exactly one helper
         │
         ├── Other offers close
         ├── Private contact details unlock
-        └── One-time delivery code is created for the helper
+        └── No readable delivery code is stored
         │
         ▼
 Helper optionally shares live journey location + ETA
         │
         ▼
-Helper arrives and tells requester the code
+Helper arrives, generates a short-lived code, and tells requester
         │
         ▼
 Requester enters code → delivery confirmed → request resolved
@@ -122,12 +132,16 @@ Sahaaya follows a privacy-by-default design:
 - Public request results expose an approximate area and reduced-precision coordinates.
 - Exact coordinates, live helper coordinates, contact information, and delivery codes are authorization-filtered server-side.
 - Delivery codes are never sent to unrelated users or the requester through the state API.
+- Stored delivery confirmation values are one-way hashes with expiration and attempt limits.
+- Creation, offers, reports, uploads, tracking, resources, and code operations are rate-limited per user.
 - Request ownership is checked before cancellation, deletion, or delivery confirmation.
 - Helper identity is checked before live-location updates.
 - Request acceptance uses `status = 'OPEN' AND accepted_by IS NULL` to prevent double acceptance under concurrent requests.
 - Uploaded files are restricted to JPG, PNG, and WebP images up to 5 MB.
+- Upload ownership is checked before storage, file signatures are verified, and failed uploads are removed.
 - Prepared SQL statements are used for application queries.
-- Resource quantities have database and application checks preventing negative inventory.
+- Versioned migrations, reference-validation triggers, cascade cleanup, and query indexes protect data integrity.
+- Resource quantities are user-posted and have database and application checks preventing negative inventory.
 - Reports are designed for human review rather than automated fraud decisions.
 
 ## Technology stack
@@ -288,18 +302,21 @@ Never reuse example passwords or JWT secrets outside local development. Environm
 | `GET` | `/api/state` | Return user-authorized requests, offers, contacts, tracking, history, and notifications |
 | `POST` | `/api/actions` | Create/cancel/delete requests, offer help, accept a helper, track delivery, confirm delivery, and update notifications |
 | `POST` | `/api/uploads` | Upload an authorized request image to R2 |
+| `GET` | `/api/health` | Check application and D1 readiness |
 
 `/api/actions` uses an `action` field. Important actions include:
 
 - `create_request`
 - `offer_help`
 - `accept_offer`
+- `generate_delivery_code`
 - `cancel_request`
 - `delete_request`
 - `update_delivery_location`
 - `confirm_delivery`
 - `update_status`
 - `read_notifications`
+- `add_resource`, `adjust_resource`, and `delete_resource`
 
 All protected routes reject anonymous requests and repeat ownership/participant checks on the server.
 
@@ -338,6 +355,8 @@ The deployed D1 schema includes:
 - `resources` and `resource_transactions` — non-negative inventory and its ledger
 - `reports` — community concerns and human review status
 - `audit_logs` — protected operational actions
+- `rate_limits` — per-user abuse and traffic controls
+- `uploaded_files` — R2 ownership and cleanup metadata
 
 Migrations are stored in `drizzle/` and must remain committed with schema changes.
 
@@ -347,7 +366,7 @@ Migrations are stored in `drizzle/` and must remain committed with schema change
 
 ```bash
 npm run build
-node --test tests/rendered-html.test.mjs
+npm test
 npm run lint
 ```
 
@@ -359,6 +378,10 @@ The safeguard tests verify that:
 - Single-helper acceptance uses an atomic conditional update.
 - Delivery confirmation is requester-only.
 - Delivery codes are removed from unauthorized state responses.
+- Real multi-user workflows enforce ownership, single-helper locking, hashed codes, upload ownership, and resource ownership against an isolated D1 database.
+- Ordinary users are denied privileged event, organization, moderation, and volunteer-assignment actions.
+
+Operational monitoring, backup, restoration, retention, and incident procedures are documented in [OPERATIONS.md](OPERATIONS.md).
 
 ### Express service
 
