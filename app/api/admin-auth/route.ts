@@ -57,6 +57,9 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const origin = request.headers.get("origin");
+    if (origin && origin !== new URL(request.url).origin)
+      return Response.json({ error: "Cross-site requests are not allowed." }, { status: 403 });
     await ensureDatabase();
     const user = await currentUser();
     if (user.role !== "ADMIN")

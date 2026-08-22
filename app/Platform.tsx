@@ -5,6 +5,12 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import LiveHelpMap from "./LiveHelpMap";
 
 type Row = Record<string, any>;
+type AccessibilityPreferences = {
+  simple: boolean;
+  largeText: boolean;
+  highContrast: boolean;
+  reduceMotion: boolean;
+};
 type State = {
   user: Row;
   adminAccess: { configured: boolean; authenticated: boolean };
@@ -40,6 +46,12 @@ const empty: State = {
   users: [],
   activity: [],
   metrics: {},
+};
+const defaultAccessibility: AccessibilityPreferences = {
+  simple: false,
+  largeText: false,
+  highContrast: false,
+  reduceMotion: false,
 };
 const categories = [
   "ALL",
@@ -91,6 +103,21 @@ function distanceMeters(
   return 6371000 * 2 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value));
 }
 
+async function fetchStateWithRetry(url: string) {
+  let lastError: unknown;
+  for (const wait of [0, 350, 1000]) {
+    if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
+    try {
+      const response = await fetch(url, { cache: "no-store" });
+      if (response.ok || response.status < 500) return response;
+      lastError = new Error(`Temporary response ${response.status}`);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError ?? new Error("State request failed");
+}
+
 export default function Platform() {
   const [data, setData] = useState<State>(empty);
   const [loading, setLoading] = useState(true);
@@ -103,14 +130,25 @@ export default function Platform() {
   const [selected, setSelected] = useState<Row | null>(null);
   const [showRequest, setShowRequest] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [accessibility, setAccessibility] = useState<AccessibilityPreferences>(
+    () => {
+      if (typeof window === "undefined") return defaultAccessibility;
+      try {
+        return {
+          ...defaultAccessibility,
+          ...JSON.parse(localStorage.getItem("sahaaya_accessibility") || "{}"),
+        };
+      } catch {
+        return defaultAccessibility;
+      }
+    },
+  );
   const load = useCallback(
     async (silent = false) => {
       if (!silent) setLoading(true);
       try {
         const params = new URLSearchParams({ q, category, status });
-        const response = await fetch(`/api/state?${params}`, {
-          cache: "no-store",
-        });
+        const response = await fetchStateWithRetry(`/api/state?${params}`);
         if (!response.ok) throw new Error();
         setData(await response.json());
         setError("");
@@ -131,6 +169,17 @@ export default function Platform() {
     const timer = setTimeout(load, 200);
     return () => clearTimeout(timer);
   }, [load]);
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle("simple-mode", accessibility.simple);
+    root.classList.toggle("large-text", accessibility.largeText);
+    root.classList.toggle("high-contrast", accessibility.highContrast);
+    root.classList.toggle("reduce-motion", accessibility.reduceMotion);
+    localStorage.setItem(
+      "sahaaya_accessibility",
+      JSON.stringify(accessibility),
+    );
+  }, [accessibility]);
   useEffect(() => {
     const refresh = () =>
       document.visibilityState === "visible" && navigator.onLine && load(true);
@@ -181,6 +230,9 @@ export default function Platform() {
   ];
   return (
     <main className="platform-shell">
+      <a className="skip-link" href="#main-workspace">
+        Skip to main content
+      </a>
       <aside className="sidebar">
         <button className="side-brand" onClick={() => setView("overview")}>
           <span>✦</span>
@@ -275,7 +327,7 @@ export default function Platform() {
             }
           />
         )}
-        <div className="workspace-content">
+        <div className="workspace-content" id="main-workspace" tabIndex={-1}>
           {error && (
             <div className="error-banner" role="alert">
               {error}
@@ -356,6 +408,8 @@ export default function Platform() {
                 <Profile
                   user={data.user}
                   role={human(data.user.role || "Resident")}
+                  accessibility={accessibility}
+                  setAccessibility={setAccessibility}
                 />
               )}
             </>
@@ -1810,7 +1864,21 @@ function NotificationPanel({
     </aside>
   );
 }
-function Profile({ user, role }: { user: Row; role: string }) {
+function Profile({
+  user,
+  role,
+  accessibility,
+  setAccessibility,
+}: {
+  user: Row;
+  role: string;
+  accessibility: AccessibilityPreferences;
+  setAccessibility: (
+    value: AccessibilityPreferences | ((current: AccessibilityPreferences) => AccessibilityPreferences),
+  ) => void;
+}) {
+  const toggle = (key: keyof AccessibilityPreferences) =>
+    setAccessibility((current) => ({ ...current, [key]: !current[key] }));
   return (
     <>
       <PageHead
@@ -1878,6 +1946,62 @@ function Profile({ user, role }: { user: Row; role: string }) {
               defaultChecked
             />
           </label>
+          <div className="settings-divider">
+            <b>Reading and accessibility</b>
+            <small>These choices stay only on this device.</small>
+          </div>
+          <label htmlFor="simple-mode">
+            <span>
+              <b>Simple mode</b>
+              <small>Hides secondary details and keeps the main actions clear.</small>
+            </span>
+            <input
+              id="simple-mode"
+              aria-label="Simple mode"
+              type="checkbox"
+              checked={accessibility.simple}
+              onChange={() => toggle("simple")}
+            />
+          </label>
+          <label htmlFor="large-text">
+            <span>
+              <b>Larger text and controls</b>
+              <small>Makes reading and tapping easier across the website.</small>
+            </span>
+            <input
+              id="large-text"
+              aria-label="Larger text and controls"
+              type="checkbox"
+              checked={accessibility.largeText}
+              onChange={() => toggle("largeText")}
+            />
+          </label>
+          <label htmlFor="high-contrast">
+            <span>
+              <b>High contrast</b>
+              <small>Strengthens borders, text, and status visibility.</small>
+            </span>
+            <input
+              id="high-contrast"
+              aria-label="High contrast"
+              type="checkbox"
+              checked={accessibility.highContrast}
+              onChange={() => toggle("highContrast")}
+            />
+          </label>
+          <label htmlFor="reduce-motion">
+            <span>
+              <b>Reduce motion</b>
+              <small>Stops non-essential movement and smooth scrolling.</small>
+            </span>
+            <input
+              id="reduce-motion"
+              aria-label="Reduce motion"
+              type="checkbox"
+              checked={accessibility.reduceMotion}
+              onChange={() => toggle("reduceMotion")}
+            />
+          </label>
           <div className="security-note">
             Account authentication is handled by secure workspace sign-in.
             Operational permissions are checked again for every protected server
@@ -1904,12 +2028,15 @@ function RequestModal({
     if (typeof window === "undefined") return {};
     try {
       return JSON.parse(
-        sessionStorage.getItem("sahaaya_request_draft") || "{}",
+        localStorage.getItem("sahaaya_request_draft") || "{}",
       );
     } catch {
       return {};
     }
   });
+  const [clientRequestId] = useState(() =>
+    String(draft.clientRequestId || crypto.randomUUID()),
+  );
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const f = new FormData(event.currentTarget);
@@ -1932,12 +2059,13 @@ function RequestModal({
       const submitted = await submit(
         {
           ...Object.fromEntries(f),
+          clientRequestId,
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
         },
         file,
       );
-      if (submitted) sessionStorage.removeItem("sahaaya_request_draft");
+      if (submitted) localStorage.removeItem("sahaaya_request_draft");
     } catch (reason) {
       setLocationError(
         reason instanceof Error
@@ -1962,16 +2090,19 @@ function RequestModal({
             <h2>Tell the community what you need</h2>
             <p>Your current location is requested only when you submit.</p>
           </div>
-          <button onClick={close}>×</button>
+          <button onClick={close} aria-label="Close request form">×</button>
         </header>
         <form
           onSubmit={onSubmit}
           onInput={(event) => {
             const values = new FormData(event.currentTarget);
             values.delete("image");
-            sessionStorage.setItem(
+            localStorage.setItem(
               "sahaaya_request_draft",
-              JSON.stringify(Object.fromEntries(values)),
+              JSON.stringify({
+                ...Object.fromEntries(values),
+                clientRequestId,
+              }),
             );
           }}
         >
@@ -2068,7 +2199,7 @@ function RequestModal({
           <div className="privacy-copy wide">
             ⌾ Your exact position and contact stay private. They are revealed
             only to the helper whose offer you accept. An unfinished text draft
-            stays only in this browser tab until it is submitted.
+            stays only on this device until it is submitted.
           </div>
           {locationError && (
             <div className="location-error wide" role="alert">

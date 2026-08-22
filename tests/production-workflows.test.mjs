@@ -88,6 +88,7 @@ test("production workflow enforces ownership, one helper, private data, secure c
 
   const created = await api(requester, "/api/actions", {
     action: "create_request",
+    clientRequestId: "workflow-request-1",
     category: "FOOD",
     publicArea: "Whitefield",
     peopleCount: 2,
@@ -100,6 +101,30 @@ test("production workflow enforces ownership, one helper, private data, secure c
   assert.equal(created.status, 200);
   const requestId = (await created.json()).id;
   assert.match(requestId, /^REQ-\d{4}-[A-F0-9]{8}$/);
+  const repeated = await api(requester, "/api/actions", {
+    action: "create_request",
+    clientRequestId: "workflow-request-1",
+    category: "FOOD",
+    publicArea: "Whitefield",
+    peopleCount: 2,
+    description: "Need two sealed food packets tonight.",
+    urgency: "URGENT",
+    contactMethod: "IN_APP",
+    latitude: 12.9716,
+    longitude: 77.5946,
+  });
+  assert.equal(repeated.status, 200);
+  assert.equal((await repeated.json()).id, requestId);
+  assert.equal(
+    (
+      await DB.prepare(
+        "SELECT COUNT(*) count FROM help_requests WHERE requester_id=?",
+      )
+        .bind(requester.id)
+        .first()
+    ).count,
+    1,
+  );
   const png = new File(
     [
       Uint8Array.from([

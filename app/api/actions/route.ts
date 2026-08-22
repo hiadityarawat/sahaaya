@@ -32,6 +32,7 @@ function actionError(error:unknown){
 
 export async function POST(request:Request) {
   try {
+    const origin=request.headers.get("origin");if(origin&&origin!==new URL(request.url).origin)return Response.json({error:"Cross-site requests are not allowed."},{status:403});
     await ensureDatabase();
     const user=await currentUser();
     let body:Record<string,unknown>;
@@ -42,19 +43,22 @@ export async function POST(request:Request) {
     if(user.role==="ADMIN"&&adminSensitiveActions.has(action))await requireAdminSession(user,request.headers);
 
     if(body.action==="create_request"){
-      await consumeRateLimit(`request:${user.id}`,10,60*60_000);
       const category=String(body.category);const area=String(body.publicArea??"").trim();const people=Number(body.peopleCount);const description=String(body.description??"").trim();const urgency=String(body.urgency);
       if(!categories.includes(category)||area.length<2||area.length>120||!Number.isInteger(people)||people<1||people>1000||description.length<10||description.length>1000||!["NORMAL","URGENT","CRITICAL"].includes(urgency))return Response.json({error:"Please complete every required field."},{status:400});
       const latitude=Number(body.latitude),longitude=Number(body.longitude);if(!validCoordinate(latitude,-90,90)||!validCoordinate(longitude,-180,180))return Response.json({error:"Allow location access so helpers can find and reach you safely."},{status:400});
+      const clientRequestId=String(body.clientRequestId??"").trim();if(!/^[a-zA-Z0-9-]{10,100}$/.test(clientRequestId))return Response.json({error:"This request draft is missing its safe submission ID. Reopen the form and retry."},{status:400});
+      const existing=await database.prepare("SELECT id FROM help_requests WHERE requester_id=? AND client_request_id=?").bind(user.id,clientRequestId).first<{id:string}>();
+      if(existing)return Response.json({ok:true,id:existing.id,deduplicated:true});
+      await consumeRateLimit(`request:${user.id}`,10,60*60_000);
       const eventId=String(body.eventId??"").trim()||null;
       if(eventId){const event=await database.prepare("SELECT id FROM disaster_events WHERE id=? AND status='ACTIVE'").bind(eventId).first();if(!event)return Response.json({error:"The selected disaster event is no longer active."},{status:409})}
       const id=`REQ-${new Date().getFullYear()}-${crypto.randomUUID().slice(0,8).toUpperCase()}`;
-      await database.batch([
-        database.prepare("INSERT INTO help_requests(id,requester_id,event_id,category,public_area,people_count,description,urgency,contact_method,status,approx_lat,approx_lng,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,'OPEN',?,?,?,?)").bind(id,user.id,eventId,category,area,people,description,urgency,String(body.contactMethod||"IN_APP"),latitude,longitude,time,time),
+      try{await database.batch([
+        database.prepare("INSERT INTO help_requests(id,requester_id,client_request_id,event_id,category,public_area,people_count,description,urgency,contact_method,status,approx_lat,approx_lng,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,'OPEN',?,?,?,?)").bind(id,user.id,clientRequestId,eventId,category,area,people,description,urgency,String(body.contactMethod||"IN_APP"),latitude,longitude,time,time),
         database.prepare("INSERT INTO request_updates(request_id,author_id,status,body,created_at) VALUES(?,?,'OPEN','Request created with privacy-safe location.',?)").bind(id,user.id,time),
         database.prepare("INSERT INTO notifications(id,user_id,title,body,type,created_at) VALUES(?,?, 'Request created',?,'REQUEST_CREATED',?)").bind(makeId("note"),user.id,`${id} is now visible to nearby community helpers.`,time),
         database.prepare("INSERT INTO audit_logs(actor_id,action,entity_type,entity_id,metadata,created_at) VALUES(?,'CREATE','REQUEST',?,'{}',?)").bind(user.id,id,time),
-      ]);
+      ])}catch(error){const duplicate=await database.prepare("SELECT id FROM help_requests WHERE requester_id=? AND client_request_id=?").bind(user.id,clientRequestId).first<{id:string}>();if(duplicate)return Response.json({ok:true,id:duplicate.id,deduplicated:true});throw error}
       return Response.json({ok:true,id});
     }
 

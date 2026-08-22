@@ -79,7 +79,7 @@ export async function GET(request: Request) {
         .all<RequestRow>(),
       database
         .prepare(
-          "SELECT hr.*,requester.name requester_name,helper.name helper_name FROM help_requests hr JOIN users requester ON requester.id=hr.requester_id LEFT JOIN users helper ON helper.id=hr.accepted_by WHERE hr.status NOT IN ('RESOLVED','CANCELLED') AND hr.approx_lat IS NOT NULL AND hr.approx_lng IS NOT NULL ORDER BY CASE hr.urgency WHEN 'CRITICAL' THEN 1 WHEN 'URGENT' THEN 2 ELSE 3 END,hr.created_at DESC LIMIT 500",
+          "SELECT hr.id,hr.requester_id,hr.accepted_by,hr.category,hr.public_area,hr.people_count,hr.description,hr.urgency,hr.status,hr.approx_lat,hr.approx_lng,hr.helper_lat,hr.helper_lng,hr.eta_minutes,hr.delivery_started_at,hr.delivery_updated_at,hr.created_at,hr.updated_at,requester.name requester_name,helper.name helper_name FROM help_requests hr JOIN users requester ON requester.id=hr.requester_id LEFT JOIN users helper ON helper.id=hr.accepted_by WHERE hr.status NOT IN ('RESOLVED','CANCELLED') AND hr.approx_lat IS NOT NULL AND hr.approx_lng IS NOT NULL ORDER BY CASE hr.urgency WHEN 'CRITICAL' THEN 1 WHEN 'URGENT' THEN 2 ELSE 3 END,hr.created_at DESC LIMIT 500",
         )
         .all<RequestRow>(),
       database
@@ -234,7 +234,12 @@ export async function GET(request: Request) {
             ? String(requestRows.at(-1)?.created_at ?? "")
             : null,
       },
-      { headers: { "Cache-Control": "private, no-store" } },
+      {
+        headers: {
+          "Cache-Control": "private, no-store",
+          "X-Content-Type-Options": "nosniff",
+        },
+      },
     );
   } catch (error) {
     if (error instanceof AuthenticationRequiredError)
