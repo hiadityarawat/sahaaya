@@ -1,8 +1,10 @@
 import { AuthenticationRequiredError, currentUser, db, ensureDatabase, makeId, timestamp } from "../../../lib/site-db";
+import { env } from "cloudflare:workers";
 
 const allowedStatus=["OPEN","ACCEPTED","VOLUNTEER_ASSIGNED","IN_PROGRESS","RESOLVED","CANCELLED"];
 function validCoordinate(value:number,min:number,max:number){return Number.isFinite(value)&&value>=min&&value<=max}
 function etaMinutes(fromLat:number,fromLng:number,toLat:number,toLng:number){const rad=(v:number)=>v*Math.PI/180;const dLat=rad(toLat-fromLat),dLng=rad(toLng-fromLng);const a=Math.sin(dLat/2)**2+Math.cos(rad(fromLat))*Math.cos(rad(toLat))*Math.sin(dLng/2)**2;const km=6371*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));return Math.max(2,Math.ceil(km/22*60+3))}
+function newDeliveryCode(){const value=new Uint32Array(1);crypto.getRandomValues(value);return String(100000+(value[0]%900000))}
 export async function POST(request:Request) {
   try {
     await ensureDatabase(); const user=await currentUser(); const body=await request.json() as Record<string,unknown>; const database=db(); const time=timestamp();
@@ -23,7 +25,7 @@ export async function POST(request:Request) {
       const helpRequest=await database.prepare("SELECT requester_id,status FROM help_requests WHERE id=?").bind(requestId).first<{requester_id:string;status:string}>();
       if(!helpRequest)return Response.json({error:"This request no longer exists."},{status:404});
       if(helpRequest.requester_id===user.id)return Response.json({error:"You cannot offer help on your own request."},{status:400});
-      if(!["OPEN","ACCEPTED"].includes(helpRequest.status))return Response.json({error:"This request is no longer accepting offers."},{status:409});
+      if(helpRequest.status!=="OPEN")return Response.json({error:"This request is no longer accepting offers."},{status:409});
       const offerId=makeId("offer");
       try{await database.batch([
         database.prepare("INSERT INTO help_offers(id,request_id,helper_id,message,status,created_at,updated_at) VALUES(?,?,?,?,'PENDING',?,?)").bind(offerId,requestId,user.id,message,time,time),
@@ -36,14 +38,31 @@ export async function POST(request:Request) {
       const offer=await database.prepare("SELECT ho.id,ho.request_id,ho.helper_id,hr.requester_id,hr.status FROM help_offers ho JOIN help_requests hr ON hr.id=ho.request_id WHERE ho.id=?").bind(offerId).first<{id:string;request_id:string;helper_id:string;requester_id:string;status:string}>();
       if(!offer)return Response.json({error:"This offer is no longer available."},{status:404});
       if(offer.requester_id!==user.id)return Response.json({error:"Only the person who requested help can accept an offer."},{status:403});
-      if(!["OPEN","ACCEPTED"].includes(offer.status))return Response.json({error:"This request is already being handled."},{status:409});
+      if(offer.status!=="OPEN")return Response.json({error:"This request is already being handled."},{status:409});
+      const code=newDeliveryCode();const claimed=await database.prepare("UPDATE help_requests SET accepted_by=?,status='ACCEPTED',delivery_code=?,delivery_code_created_at=?,updated_at=? WHERE id=? AND status='OPEN' AND accepted_by IS NULL").bind(offer.helper_id,code,time,time,offer.request_id).run();
+      if(!claimed.meta.changes)return Response.json({error:"Another helper has already been accepted for this request."},{status:409});
       await database.batch([
         database.prepare("UPDATE help_offers SET status=CASE WHEN id=? THEN 'ACCEPTED' ELSE 'DECLINED' END,updated_at=? WHERE request_id=? AND status='PENDING'").bind(offerId,time,offer.request_id),
-        database.prepare("UPDATE help_requests SET accepted_by=?,status='ACCEPTED',updated_at=? WHERE id=?").bind(offer.helper_id,time,offer.request_id),
         database.prepare("INSERT INTO request_updates(request_id,author_id,status,body,created_at) VALUES(?,?,'ACCEPTED','A community helper offer was accepted. Private contact is now shared between both people.',?)").bind(offer.request_id,user.id,time),
-        database.prepare("INSERT INTO notifications(id,user_id,title,body,type,created_at) VALUES(?,?, 'Your help offer was accepted',?,'OFFER_ACCEPTED',?)").bind(makeId("note"),offer.helper_id,`${offer.request_id}: contact details are now available.`,time),
+        database.prepare("INSERT INTO notifications(id,user_id,title,body,type,created_at) VALUES(?,?, 'Your help offer was accepted',?,'OFFER_ACCEPTED',?)").bind(makeId("note"),offer.helper_id,`${offer.request_id}: contact details and your delivery confirmation code are now available.`,time),
       ]);
       return Response.json({ok:true});
+    }
+    if(body.action==="cancel_request"){
+      const requestId=String(body.id);const result=await database.prepare("UPDATE help_requests SET status='CANCELLED',updated_at=? WHERE id=? AND requester_id=? AND status='OPEN' AND accepted_by IS NULL").bind(time,requestId,user.id).run();
+      if(!result.meta.changes)return Response.json({error:"Only an unclaimed request can be cancelled by its requester."},{status:409});
+      await database.batch([database.prepare("UPDATE help_offers SET status='DECLINED',updated_at=? WHERE request_id=? AND status='PENDING'").bind(time,requestId),database.prepare("INSERT INTO request_updates(request_id,author_id,status,body,created_at) VALUES(?,?,'CANCELLED','The requester cancelled this unclaimed request.',?)").bind(requestId,user.id,time)]);return Response.json({ok:true});
+    }
+    if(body.action==="delete_request"){
+      const requestId=String(body.id);const target=await database.prepare("SELECT requester_id,status,accepted_by,image_key FROM help_requests WHERE id=?").bind(requestId).first<{requester_id:string;status:string;accepted_by:string|null;image_key:string|null}>();
+      if(!target)return Response.json({error:"Request not found."},{status:404});if(target.requester_id!==user.id||target.accepted_by||!["OPEN","CANCELLED"].includes(target.status))return Response.json({error:"Only your unclaimed request can be permanently deleted."},{status:403});
+      await database.batch([database.prepare("DELETE FROM help_offers WHERE request_id=?").bind(requestId),database.prepare("DELETE FROM request_updates WHERE request_id=?").bind(requestId),database.prepare("DELETE FROM reports WHERE request_id=?").bind(requestId),database.prepare("DELETE FROM help_requests WHERE id=? AND requester_id=? AND accepted_by IS NULL").bind(requestId,user.id)]);if(target.image_key)await env.UPLOADS.delete(target.image_key);return Response.json({ok:true});
+    }
+    if(body.action==="confirm_delivery"){
+      const requestId=String(body.id),code=String(body.code||"").trim();if(!/^\d{6}$/.test(code))return Response.json({error:"Enter the 6-digit delivery code."},{status:400});
+      const target=await database.prepare("SELECT requester_id,accepted_by,status,delivery_code FROM help_requests WHERE id=?").bind(requestId).first<{requester_id:string;accepted_by:string|null;status:string;delivery_code:string|null}>();
+      if(!target)return Response.json({error:"Request not found."},{status:404});if(target.requester_id!==user.id)return Response.json({error:"Only the requester can confirm delivery."},{status:403});if(!target.accepted_by||!["ACCEPTED","IN_PROGRESS"].includes(target.status))return Response.json({error:"This delivery cannot be confirmed yet."},{status:409});if(target.delivery_code!==code)return Response.json({error:"That delivery code is incorrect."},{status:400});
+      await database.batch([database.prepare("UPDATE help_requests SET status='RESOLVED',delivery_code=NULL,updated_at=? WHERE id=? AND requester_id=? AND delivery_code=?").bind(time,requestId,user.id,code),database.prepare("INSERT INTO request_updates(request_id,author_id,status,body,created_at) VALUES(?,?,'RESOLVED','Delivery confirmed with the one-time code.',?)").bind(requestId,user.id,time),database.prepare("INSERT INTO notifications(id,user_id,title,body,type,created_at) VALUES(?,?, 'Delivery confirmed',?,'DELIVERY_CONFIRMED',?)").bind(makeId("note"),target.accepted_by,`${requestId} was confirmed and completed.`,time)]);return Response.json({ok:true});
     }
     if(body.action==="update_delivery_location"){
       const requestId=String(body.id),latitude=Number(body.latitude),longitude=Number(body.longitude);
@@ -55,14 +74,13 @@ export async function POST(request:Request) {
       return Response.json({ok:true,eta});
     }
     if(body.action==="accept_request"){
-      const id=String(body.id); const result=await database.prepare("UPDATE help_requests SET status='ACCEPTED',accepted_by=?,updated_at=? WHERE id=? AND status='OPEN'").bind(user.id,time,id).run(); if(!result.meta.changes) return Response.json({error:"This request has already been claimed."},{status:409});
-      await database.batch([database.prepare("INSERT INTO request_updates(request_id,author_id,status,body,created_at) VALUES(?,?,'ACCEPTED','Request accepted by a verified responder.',?)").bind(id,user.id,time),database.prepare("INSERT INTO audit_logs(actor_id,action,entity_type,entity_id,metadata,created_at) VALUES(?,'ACCEPT','REQUEST',?,'{}',?)").bind(user.id,id,time)]); return Response.json({ok:true});
+      return Response.json({error:"Send a help offer so the requester can choose one helper safely."},{status:410});
     }
     if(body.action==="assign_volunteer"){
       const id=String(body.id),volunteerId=String(body.volunteerId); const result=await database.prepare("UPDATE help_requests SET assigned_volunteer_id=?,status='VOLUNTEER_ASSIGNED',updated_at=? WHERE id=? AND assigned_volunteer_id IS NULL AND status IN ('ACCEPTED','OPEN')").bind(volunteerId,time,id).run(); if(!result.meta.changes)return Response.json({error:"A volunteer is already assigned."},{status:409}); await database.prepare("INSERT INTO request_updates(request_id,author_id,status,body,created_at) VALUES(?,?,'VOLUNTEER_ASSIGNED','Volunteer assigned and notified.',?)").bind(id,user.id,time).run(); return Response.json({ok:true});
     }
     if(body.action==="update_status"){
-      const id=String(body.id),status=String(body.status),note=String(body.note||`Status changed to ${status}.`).slice(0,500); if(!allowedStatus.includes(status))return Response.json({error:"Invalid status."},{status:400}); const result=await database.prepare("UPDATE help_requests SET status=?,updated_at=? WHERE id=? AND (requester_id=? OR accepted_by=? OR ?='ADMIN')").bind(status,time,id,user.id,user.id,user.role).run();if(!result.meta.changes)return Response.json({error:"Only the requester or accepted helper can update this request."},{status:403});await database.prepare("INSERT INTO request_updates(request_id,author_id,status,body,created_at) VALUES(?,?,?,?,?)").bind(id,user.id,status,note,time).run(); return Response.json({ok:true});
+      const id=String(body.id),status=String(body.status),note=String(body.note||`Status changed to ${status}.`).slice(0,500); if(!allowedStatus.includes(status))return Response.json({error:"Invalid status."},{status:400});if(["RESOLVED","CANCELLED"].includes(status))return Response.json({error:"Use the delivery code to complete a matched request, or cancel it before a helper is accepted."},{status:400}); const result=await database.prepare("UPDATE help_requests SET status=?,updated_at=? WHERE id=? AND accepted_by IS NOT NULL AND (requester_id=? OR accepted_by=? OR ?='ADMIN')").bind(status,time,id,user.id,user.id,user.role).run();if(!result.meta.changes)return Response.json({error:"Only the requester or accepted helper can update this request."},{status:403});await database.prepare("INSERT INTO request_updates(request_id,author_id,status,body,created_at) VALUES(?,?,?,?,?)").bind(id,user.id,status,note,time).run(); return Response.json({ok:true});
     }
     if(body.action==="availability"){await database.prepare("UPDATE volunteers SET available=?,updated_at=? WHERE user_id=?").bind(body.available?1:0,time,String(body.volunteerId)).run();return Response.json({ok:true});}
     if(body.action==="adjust_resource"){

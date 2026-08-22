@@ -24,6 +24,8 @@ export async function GET(request:Request) {
     ]);
     const secure=(row:RequestRow)=>{
       const participant=row.requester_id===user.id||row.accepted_by===user.id;const output={...row,is_owner:row.requester_id===user.id,is_helper:row.accepted_by===user.id,can_contact:participant&&!!row.accepted_by} as Record<string,unknown>;
+      if(row.accepted_by!==user.id)delete output.delivery_code;
+      if(!participant)delete output.delivery_code_created_at;
       if(!participant){output.approx_lat=row.approx_lat==null?null:Math.round(row.approx_lat*100)/100;output.approx_lng=row.approx_lng==null?null:Math.round(row.approx_lng*100)/100;delete output.helper_lat;delete output.helper_lng;delete output.eta_minutes;delete output.delivery_updated_at}
       return output;
     };
