@@ -651,8 +651,15 @@ export default function Platform() {
 function Loading() {
   return (
     <div className="loading-state" role="status" aria-live="polite">
-      <span className="network-loader"><i className="brand-logo-mark" /></span>
-      <p>Synchronizing response network…</p>
+      <span className="network-loader" aria-hidden="true">
+        <i className="loader-ring loader-ring-outer" />
+        <i className="loader-ring loader-ring-inner" />
+        <b className="brand-logo-mark" />
+        <em className="loader-signal" />
+      </span>
+      <p>Synchronizing response network</p>
+      <span className="loading-dots" aria-hidden="true"><i /><i /><i /></span>
+      <small>Securing live requests and location updates</small>
     </div>
   );
 }

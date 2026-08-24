@@ -35,3 +35,51 @@
 .sahaaya-intro{pointer-events:none;contain:layout paint;will-change:opacity}.intro-emblem{will-change:transform,opacity;transform:translateZ(0)}.intro-orbit,.intro-progress i{will-change:transform}.intro-wordmark span{will-change:transform,opacity}
 @media(max-width:760px){.view-stage{animation-duration:.18s!important}.view-stage>.surface,.view-stage>.mini-stats,.view-stage>.overview-grid,.view-stage>.two-grid,.view-stage>.admin-grid,.view-stage>.resource-board,.view-stage>.map-layout,.overview-home .stat-card,.overview-home .overview-grid,.overview-home .two-grid,.overview-home .page-head h1,.overview-home .page-head .overline,.overview-home .page-head>div>p:last-child,.overview-home .card-head h2,.overview-home .stat-card strong{animation:none!important;opacity:1!important;transform:none!important}.overview-home .page-head:after{animation:none!important}.mobile-nav-scrim,.overlay,.pwa-install{backdrop-filter:none!important}}
 .native-app .pwa-install{display:none!important}.native-app body{overscroll-behavior:none}.native-offline .system-state{border-color:#d6a94f;background:#3f3926}.native-offline .system-state p:first-child:before{background:#efb955}
+
+/* Refined brand motion: layered, lightweight, and never replayed during normal navigation. */
+.sahaaya-intro{overflow:hidden;isolation:isolate;background:linear-gradient(145deg,#0b2b23 0%,#123f34 48%,#0a2922 100%)}
+.intro-grid{position:absolute;z-index:-3;inset:-20%;opacity:.16;background-image:linear-gradient(#a7d8c118 1px,transparent 1px),linear-gradient(90deg,#a7d8c118 1px,transparent 1px);background-size:54px 54px;transform:perspective(620px) rotateX(62deg) translateY(29%);transform-origin:center bottom;animation:introGridDrift 6s cubic-bezier(.2,.7,.2,1) both}
+.intro-bloom{position:absolute;z-index:-2;width:min(66vw,720px);aspect-ratio:1;border-radius:50%;filter:blur(10px);opacity:0;background:radial-gradient(circle,#55a38240 0,#2d765b18 40%,transparent 70%);animation:introBloom 5.4s .2s ease-out both}
+.intro-bloom-one{left:-22%;top:-45%}.intro-bloom-two{right:-26%;bottom:-54%;animation-delay:.65s}
+.intro-emblem{width:112px;height:112px;margin-bottom:28px;filter:drop-shadow(0 22px 34px #061b1655)}
+.intro-halo{position:absolute;inset:0;border-radius:50%;border:1px solid #aee1ca24;opacity:0;animation:haloOpen 1.5s cubic-bezier(.2,.8,.2,1) forwards}
+.intro-halo-outer{inset:-20px;animation-delay:.65s}.intro-halo-inner{inset:-9px;animation-delay:.82s}
+.intro-orbit{inset:0;border-width:1px;border-color:#ffffff20;border-top-color:#f2c46d;border-right-color:#80cfaf;box-shadow:inset 0 0 26px #8ad5b511}
+.intro-orbit i{width:7px;height:7px;right:10px;top:10px;box-shadow:0 0 0 5px #f2c46d18,0 0 18px #f2c46d80}
+.intro-logo-frame{position:relative;width:76px;height:76px;display:grid;place-items:center;overflow:hidden;border:1px solid #ffffff35;border-radius:22px;background:linear-gradient(145deg,#f9fbf7,#e8f4ee);box-shadow:inset 0 1px 0 #fff,0 14px 34px #061d1766;animation:logoFrameSettle 1.25s .3s cubic-bezier(.2,.8,.2,1) both}
+.intro-logo-frame>.brand-logo-mark{width:58px;height:58px;background-size:contain!important;animation:introMarkReveal 1.25s .55s cubic-bezier(.2,.8,.2,1) both}
+.intro-logo-frame>i{position:absolute;inset:-40% auto -40% -65%;width:34%;background:linear-gradient(90deg,transparent,#fff9,transparent);transform:skewX(-18deg);animation:logoSheen .85s 1.55s ease-out both}
+.intro-wordmark{gap:.13em;font-size:clamp(27px,4vw,36px);line-height:1;letter-spacing:.21em;text-shadow:0 8px 24px #061d1745}
+.intro-wordmark span{filter:blur(7px);transform:translateY(22px) scale(.9);animation-name:letterReveal;animation-timing-function:cubic-bezier(.18,.82,.22,1)}
+.intro-subtitle{margin:13px 0 25px!important;color:#a8cfc0!important;font-size:9px!important;font-weight:750!important;letter-spacing:.32em!important;text-transform:uppercase}
+.intro-load{width:min(260px,70vw);opacity:0;animation:softReveal .5s 3.5s both}
+.intro-load>span:first-child{display:block;margin-bottom:9px;color:#b7cec6;font-size:8px;letter-spacing:.08em;text-align:center}
+.intro-progress{position:relative;display:block;width:100%;height:3px;overflow:visible;border-radius:999px;background:#ffffff18;box-shadow:inset 0 1px 2px #061d174d}
+.intro-progress i{display:block;width:100%;height:100%;border-radius:inherit;background:linear-gradient(90deg,#62bb96,#8bd6b6 55%,#f2c46d);transform-origin:left;box-shadow:0 0 15px #73caa05c}
+.intro-progress b{position:absolute;top:50%;left:0;width:7px;height:7px;border-radius:50%;background:#fff3c9;box-shadow:0 0 0 4px #f2c46d20,0 0 14px #f2c46d;transform:translate(-50%,-50%);animation:progressSpark 1.7s 3.65s cubic-bezier(.65,0,.2,1) both}
+.side-brand>.brand-logo-mark,.public-brand>.brand-logo-mark,.auth-brand>.brand-logo-mark{transform-origin:center;animation:brandLogoArrive .75s cubic-bezier(.2,.8,.2,1) both;transition:transform .28s cubic-bezier(.2,.8,.2,1),filter .28s ease}
+.side-brand:hover>.brand-logo-mark,.public-brand:hover>.brand-logo-mark,.auth-brand:hover>.brand-logo-mark{transform:translateY(-2px) rotate(-3deg) scale(1.04);filter:drop-shadow(0 7px 9px #0d33272d)}
+.loading-state{height:60vh;display:grid;place-content:center;justify-items:center;gap:0;text-align:center}
+.loading-state .network-loader{position:relative;width:82px!important;height:82px!important;display:grid;place-items:center;margin-bottom:20px;border:0!important;border-radius:50%!important;background:radial-gradient(circle,#fff 0 44%,#e8f3ed 45% 51%,transparent 52%)!important;box-shadow:0 14px 40px #173d3317;animation:loaderFloat 1.8s ease-in-out infinite!important}
+.network-loader .loader-ring{position:absolute!important;inset:0;width:auto!important;height:auto!important;border:1px solid #80bfa629!important;border-radius:50%!important;background:transparent!important;animation:loaderOrbit 1.8s linear infinite!important}
+.network-loader .loader-ring:after{content:"";position:absolute;width:8px;height:8px;right:7px;top:9px;border-radius:50%;background:#3d8b6d;box-shadow:0 0 0 5px #3d8b6d18}
+.network-loader .loader-ring-inner{inset:9px!important;animation-direction:reverse!important;animation-duration:1.25s!important}
+.network-loader .loader-ring-inner:after{width:6px;height:6px;right:4px;top:7px;background:#e3a83f;box-shadow:0 0 0 4px #e3a83f18}
+.network-loader .brand-logo-mark{position:relative;z-index:2;width:38px!important;height:38px!important;animation:loaderMarkPulse 1.8s ease-in-out infinite!important}
+.network-loader .loader-signal{position:absolute;inset:22px;border-radius:50%;border:1px solid #3d8b6d35;animation:loaderSignal 1.8s ease-out infinite}
+.loading-state p{width:auto;margin:0;color:#315b4d;font-size:11px;font-weight:800;letter-spacing:.02em}
+.loading-state .loading-dots{display:flex;width:auto;height:auto;gap:4px;margin:9px 0 8px;background:transparent;animation:none}
+.loading-dots i{width:5px;height:5px;border-radius:50%;background:#4b9277;animation:loadingDot .9s ease-in-out infinite alternate}.loading-dots i:nth-child(2){animation-delay:.14s}.loading-dots i:nth-child(3){animation-delay:.28s}
+.loading-state>small{color:#899891;font-size:8px;letter-spacing:.03em}
+@keyframes introGridDrift{from{opacity:0;transform:perspective(620px) rotateX(62deg) translateY(36%) scale(1.08)}20%{opacity:.16}to{opacity:.08;transform:perspective(620px) rotateX(62deg) translateY(24%) scale(1)}}
+@keyframes introBloom{0%{opacity:0;transform:scale(.7)}34%{opacity:.8}100%{opacity:.3;transform:scale(1.08)}}
+@keyframes haloOpen{0%{opacity:0;transform:scale(.55)}55%{opacity:.65}100%{opacity:.2;transform:scale(1.08)}}
+@keyframes logoFrameSettle{0%{opacity:0;transform:rotate(-18deg) scale(.6)}68%{opacity:1;transform:rotate(3deg) scale(1.06)}100%{opacity:1;transform:none}}
+@keyframes introMarkReveal{0%{opacity:0;transform:scale(.65) rotate(-12deg);filter:blur(5px)}100%{opacity:1;transform:none;filter:none}}
+@keyframes logoSheen{from{left:-65%}to{left:135%}}
+@keyframes letterReveal{0%{opacity:0;filter:blur(7px);transform:translateY(22px) scale(.9)}72%{opacity:1;filter:blur(0);transform:translateY(-2px) scale(1.02)}100%{opacity:1;filter:none;transform:none}}
+@keyframes progressSpark{from{left:0;opacity:0}8%{opacity:1}92%{opacity:1}to{left:100%;opacity:0}}
+@keyframes brandLogoArrive{0%{opacity:0;transform:scale(.72) rotate(-10deg)}70%{opacity:1;transform:scale(1.06) rotate(2deg)}100%{opacity:1;transform:none}}
+@keyframes loaderOrbit{to{transform:rotate(360deg)}}@keyframes loaderFloat{50%{transform:translateY(-5px);box-shadow:0 19px 46px #173d3320}}@keyframes loaderMarkPulse{50%{transform:scale(.92);opacity:.78}}@keyframes loaderSignal{0%{opacity:.8;transform:scale(.6)}80%,100%{opacity:0;transform:scale(1.55)}}@keyframes loadingDot{to{opacity:.25;transform:translateY(-3px)}}
+@media(max-width:480px){.intro-emblem{width:100px;height:100px}.intro-logo-frame{width:70px;height:70px}.intro-wordmark{font-size:25px;letter-spacing:.17em}.intro-subtitle{font-size:7px!important;letter-spacing:.25em!important}.intro-load{width:min(238px,72vw)}}
+@media(prefers-reduced-motion:reduce){.sahaaya-intro,.sahaaya-intro *,.network-loader,.network-loader *,.loading-dots *,.side-brand>.brand-logo-mark,.public-brand>.brand-logo-mark,.auth-brand>.brand-logo-mark{animation:none!important;transition:none!important}.intro-grid,.intro-bloom,.intro-halo,.intro-logo-frame>i,.intro-progress b{display:none!important}.intro-emblem,.intro-logo-frame,.intro-logo-frame>.brand-logo-mark,.intro-wordmark span,.intro-subtitle,.intro-load{opacity:1!important;transform:none!important;filter:none!important}.intro-progress i{transform:scaleX(1)!important}}
