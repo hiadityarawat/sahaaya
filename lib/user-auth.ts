@@ -16,11 +16,16 @@ const timestamp=()=>new Date().toISOString();
 
 const hex=(bytes:Uint8Array)=>Array.from(bytes,b=>b.toString(16).padStart(2,"0")).join("");
 const randomHex=(size:number)=>{const bytes=new Uint8Array(size);crypto.getRandomValues(bytes);return hex(bytes)};
+export const newOpaqueToken=()=>randomHex(32);
 export const normalizeEmail=(value:string)=>value.trim().toLowerCase();
 export const validEmail=(value:string)=>value.length<=254&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 export const passwordProblem=(value:string)=>value.length<10?"Use at least 10 characters.":value.length>128?"Password must be 128 characters or fewer.":!/[A-Za-z]/.test(value)||!/\d/.test(value)?"Include at least one letter and one number.":null;
 
 export async function hashSecret(value:string){const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(value));return hex(new Uint8Array(digest))}
+export async function requestThrottleKey(request:Request,scope:string,identifier:string){
+  const address=request.headers.get("cf-connecting-ip")??request.headers.get("x-real-ip")??"unknown";
+  return `${scope}:${await hashSecret(`${address}|${normalizeEmail(identifier)}`)}`;
+}
 export async function derivePassword(password:string,saltHex:string,iterations=PASSWORD_ITERATIONS){
   const salt=Uint8Array.from(saltHex.match(/.{1,2}/g)??[],v=>Number.parseInt(v,16));
   let material=new TextEncoder().encode(password);
@@ -55,3 +60,16 @@ export async function sessionUser(source?:Headers):Promise<SafeUser|null>{
 }
 export async function requireUser(source?:Headers){const user=await sessionUser(source);if(!user)throw new AuthenticationRequiredError("Sign in to continue.");return user}
 export async function auditAuth(userId:string,action:string,metadata:Record<string,unknown>={}){await db().prepare("INSERT INTO audit_logs(actor_id,action,entity_type,entity_id,metadata,created_at) VALUES(?,?,'USER',?,?,?)").bind(userId,action,userId,JSON.stringify(metadata),timestamp()).run()}
+
+export async function cleanupExpiredSecurityState(){
+  const now=timestamp(),oldWindow=Date.now()-24*60*60_000,oldAudit=new Date(Date.now()-180*24*60*60_000).toISOString();
+  await db().batch([
+    db().prepare("DELETE FROM user_sessions WHERE expires_at<=?").bind(now),
+    db().prepare("DELETE FROM admin_sessions WHERE expires_at<=?").bind(now),
+    db().prepare("DELETE FROM password_reset_tokens WHERE expires_at<=? OR (consumed_at IS NOT NULL AND consumed_at<?)").bind(now,new Date(Date.now()-7*24*60*60_000).toISOString()),
+    db().prepare("DELETE FROM email_verification_tokens WHERE expires_at<=? OR (consumed_at IS NOT NULL AND consumed_at<?)").bind(now,new Date(Date.now()-7*24*60*60_000).toISOString()),
+    db().prepare("DELETE FROM rate_limits WHERE window_started_at<?").bind(oldWindow),
+    db().prepare("DELETE FROM audit_logs WHERE created_at<? AND action NOT LIKE 'ADMIN_%'").bind(oldAudit),
+  ]);
+}
+export async function maybeCleanupExpiredSecurityState(){const sample=new Uint8Array(1);crypto.getRandomValues(sample);if(sample[0]===0)await cleanupExpiredSecurityState()}

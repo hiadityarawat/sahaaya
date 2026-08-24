@@ -2,7 +2,7 @@
 "use client";
 
 import { type CSSProperties, FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import LiveHelpMap from "./LiveHelpMap";
+import LiveHelpMap from "./ReliableHelpMap";
 import SignOutButton from "./SignOutButton";
 
 type Row = Record<string, any>;
@@ -123,6 +123,11 @@ function disasterMapPoints(events: Row[]) {
         startTime: event.starts_at,
         safetyInfo: event.safety_info,
         emergencyGuidance: event.emergency_guidance,
+        severity: event.severity,
+        sourceName: event.source_name,
+        sourceUrl: event.source_url,
+        verifiedAt: event.verified_at,
+        expiresAt: event.expires_at,
       },
     }));
 }
@@ -236,7 +241,7 @@ export default function Platform() {
     const activeDelivery = [...data.requests, ...data.myRequests].some((item) =>
       ["ACCEPTED", "IN_PROGRESS"].includes(item.status),
     );
-    const timer = setInterval(refresh, activeDelivery ? 15000 : 30000);
+    const timer = setInterval(refresh, activeDelivery ? 10000 : 30000);
     window.addEventListener("online", refresh);
     document.addEventListener("visibilitychange", refresh);
     return () => {
@@ -1627,13 +1632,15 @@ function AdminGate({
   const [loginId, setLoginId] = useState("");
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
+  const [accountPassword, setAccountPassword] = useState("");
+  const [recovering, setRecovering] = useState(false);
   const [message, setMessage] = useState("");
   const [working, setWorking] = useState(false);
 
   async function authenticate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const setup = !data.adminAccess.configured;
-    if (setup && password !== confirmation) {
+    if ((setup || recovering) && password !== confirmation) {
       setMessage("The two passwords do not match.");
       return;
     }
@@ -1643,15 +1650,18 @@ function AdminGate({
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          action: setup ? "setup" : "login",
+          action: setup ? "setup" : recovering ? "recover" : "login",
           loginId,
           password,
+          accountPassword,
         }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error);
       setPassword("");
       setConfirmation("");
+      setAccountPassword("");
+      setRecovering(false);
       await reload();
     } catch (error) {
       setMessage(
@@ -1676,7 +1686,9 @@ function AdminGate({
               : "Secure your Admin dashboard"}
           </h1>
           <p>
-            {data.adminAccess.configured
+            {recovering
+              ? "Reset the administrator ID and password after confirming your signed-in Sahaaya account password."
+              : data.adminAccess.configured
               ? "Enter the administrator ID and password created for this signed-in account."
               : "Create the administrator ID and strong password that will protect this account's privileged controls."}
           </p>
@@ -1700,7 +1712,7 @@ function AdminGate({
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 autoComplete={
-                  data.adminAccess.configured
+                  data.adminAccess.configured && !recovering
                     ? "current-password"
                     : "new-password"
                 }
@@ -1709,7 +1721,7 @@ function AdminGate({
                 required
               />
             </label>
-            {!data.adminAccess.configured && (
+            {(recovering || !data.adminAccess.configured) && (
               <>
                 <label>
                   Confirm password
@@ -1729,14 +1741,18 @@ function AdminGate({
                 </small>
               </>
             )}
+            {recovering && <label>Your Sahaaya account password<input type="password" value={accountPassword} onChange={(event)=>setAccountPassword(event.target.value)} autoComplete="current-password" minLength={10} maxLength={128} required/></label>}
             {message && <div className="admin-login-error">{message}</div>}
             <button className="solid-btn" disabled={working}>
               {working
                 ? "Checking securely…"
-                : data.adminAccess.configured
+                : recovering
+                  ? "Recover & unlock dashboard"
+                  : data.adminAccess.configured
                   ? "Unlock Admin dashboard"
                   : "Create credentials & continue"}
             </button>
+            {data.adminAccess.configured&&<button type="button" className="soft-btn" onClick={()=>{setRecovering(value=>!value);setMessage("");setPassword("");setConfirmation("");setAccountPassword("")}}>{recovering?"Back to administrator login":"Forgot administrator credentials?"}</button>}
           </form>
           <div className="privacy-copy">
             Your Sahaaya account, ADMIN role, and administrator credentials must all match.
@@ -1986,12 +2002,12 @@ function AdminView({
           <div className="event-list">
             {data.events.map((event) => (
               <article key={event.id}>
-                <Badge value={event.status} />
+                <Badge value={event.severity||event.status} />
                 <div>
                   <b>{event.name}</b>
-                  <small>{eventAreas(event.affected_areas)}</small>
+                  <small>{eventAreas(event.affected_areas)} · {event.source_name||"Source not recorded"}</small>
                 </div>
-                <time>{new Date(event.starts_at).toLocaleDateString()}</time>
+                <time>{event.expired?"Expired":event.expires_at?`Expires ${new Date(event.expires_at).toLocaleDateString()}`:new Date(event.starts_at).toLocaleDateString()}</time>
                 <button
                   className="danger"
                   onClick={() => {
@@ -2830,12 +2846,12 @@ function RequestDetail({
                   <p className="overline">LIVE DELIVERY TRACKING</p>
                   <b>
                     {item.eta_minutes
-                      ? `About ${item.eta_minutes} minutes away`
+                      ? `Estimated ${item.eta_minutes} minutes away`
                       : "Waiting for helper location"}
                   </b>
                   <small>
                     {item.delivery_updated_at
-                      ? `Updated ${ago(item.delivery_updated_at)}`
+                      ? `Updated ${ago(item.delivery_updated_at)} · ${item.eta_source==="ROUTE"?"road-route estimate":"straight-line estimate, not traffic navigation"}`
                       : "The helper can start sharing when they begin the journey."}
                   </small>
                 </div>
@@ -3212,6 +3228,7 @@ function CreateEvent({
       .toISOString()
       .slice(0, 16);
   });
+  const [localExpiry] = useState(() => {const current=new Date(Date.now()+24*60*60_000);return new Date(current.getTime()-current.getTimezoneOffset()*60000).toISOString().slice(0,16)});
   const useCurrentPosition = () => {
     if (!navigator.geolocation) {
       setLocationMessage("Location is unavailable. Enter the approximate coordinates manually.");
@@ -3269,6 +3286,22 @@ function CreateEvent({
           <label>
             Event start time
             <input name="startsAt" type="datetime-local" defaultValue={localNow} required />
+          </label>
+          <label>
+            Automatic expiry time
+            <input name="expiresAt" type="datetime-local" defaultValue={localExpiry} required />
+          </label>
+          <label>
+            Severity
+            <select name="severity" defaultValue="WARNING" required><option value="ADVISORY">Advisory</option><option value="WATCH">Watch</option><option value="WARNING">Warning</option><option value="CRITICAL">Critical</option></select>
+          </label>
+          <label>
+            Official information source
+            <input name="sourceName" required minLength={3} maxLength={160} placeholder="e.g. Karnataka State Disaster Management Authority" />
+          </label>
+          <label>
+            Official source link (optional)
+            <input name="sourceUrl" type="url" inputMode="url" placeholder="https://official-source.example/advisory" />
           </label>
           <div className="coordinate-fields">
             <label>

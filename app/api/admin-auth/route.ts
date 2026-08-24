@@ -21,7 +21,7 @@ import {
   ensureDatabase,
   timestamp,
 } from "../../../lib/site-db";
-import { sameOrigin } from "../../../lib/user-auth";
+import { derivePassword, safeEqual, sameOrigin } from "../../../lib/user-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -192,6 +192,22 @@ export async function POST(request: Request) {
         { ok: true, expiresAt: session.expiresAt },
         { headers: { "Set-Cookie": adminSessionCookie(session.token) } },
       );
+    }
+
+    if (action === "recover") {
+      await consumeRateLimit(`admin-recover:${user.id}`, 3, 60 * 60_000);
+      const accountPassword=String(body.accountPassword??"");
+      if (!validAdminPassword(password)) return Response.json({error:"Use at least 12 characters with uppercase, lowercase, a number, and a symbol."},{status:400});
+      const account=await database.prepare("SELECT password_hash,password_salt,password_iterations FROM users WHERE id=? AND blocked_at IS NULL").bind(user.id).first<{password_hash:string|null;password_salt:string|null;password_iterations:number|null}>();
+      if(!account?.password_hash||!account.password_salt||!safeEqual(await derivePassword(accountPassword,account.password_salt,account.password_iterations??100000),account.password_hash))return Response.json({error:"Your Sahaaya account password is incorrect."},{status:401});
+      const salt=newAdminPasswordSalt(),passwordHash=await deriveAdminPassword(password,salt),now=timestamp();
+      try{await database.batch([
+        database.prepare("UPDATE admin_credentials SET admin_login_id=?,password_salt=?,password_hash=?,password_iterations=?,updated_at=? WHERE user_id=?").bind(loginId,salt,passwordHash,ADMIN_PASSWORD_ITERATIONS,now,user.id),
+        database.prepare("DELETE FROM admin_sessions WHERE user_id=?").bind(user.id),
+        database.prepare("INSERT INTO audit_logs(actor_id,action,entity_type,entity_id,metadata,created_at) VALUES(?,'ADMIN_CREDENTIAL_RECOVERY','USER',?,'{}',?)").bind(user.id,user.id,now),
+      ])}catch{return Response.json({error:"That administrator ID is already in use."},{status:409})}
+      const session=await createAdminSession(user.id);
+      return Response.json({ok:true,expiresAt:session.expiresAt},{headers:{"Set-Cookie":adminSessionCookie(session.token)}});
     }
 
     if (action === "login") {

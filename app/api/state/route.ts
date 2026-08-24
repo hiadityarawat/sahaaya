@@ -87,7 +87,7 @@ export async function GET(request: Request) {
         .all<RequestRow>() : Promise.resolve({ results: [] as RequestRow[] }),
       includeMap ? database
         .prepare(
-          "SELECT hr.id,hr.requester_id,hr.accepted_by,hr.category,hr.public_area,hr.people_count,hr.description,hr.urgency,hr.status,hr.approx_lat,hr.approx_lng,hr.helper_lat,hr.helper_lng,hr.eta_minutes,hr.delivery_started_at,hr.delivery_updated_at,hr.created_at,hr.updated_at,requester.name requester_name,helper.name helper_name FROM help_requests hr JOIN users requester ON requester.id=hr.requester_id LEFT JOIN users helper ON helper.id=hr.accepted_by WHERE hr.status NOT IN ('RESOLVED','CANCELLED') AND hr.approx_lat IS NOT NULL AND hr.approx_lng IS NOT NULL ORDER BY CASE hr.urgency WHEN 'CRITICAL' THEN 1 WHEN 'URGENT' THEN 2 ELSE 3 END,hr.created_at DESC LIMIT 500",
+          "SELECT hr.id,hr.requester_id,hr.accepted_by,hr.category,hr.public_area,hr.people_count,hr.description,hr.urgency,hr.status,hr.approx_lat,hr.approx_lng,hr.helper_lat,hr.helper_lng,hr.eta_minutes,hr.eta_source,hr.delivery_started_at,hr.delivery_updated_at,hr.created_at,hr.updated_at,requester.name requester_name,helper.name helper_name FROM help_requests hr JOIN users requester ON requester.id=hr.requester_id LEFT JOIN users helper ON helper.id=hr.accepted_by WHERE hr.status NOT IN ('RESOLVED','CANCELLED') AND hr.approx_lat IS NOT NULL AND hr.approx_lng IS NOT NULL ORDER BY CASE hr.urgency WHEN 'CRITICAL' THEN 1 WHEN 'URGENT' THEN 2 ELSE 3 END,hr.created_at DESC LIMIT 500",
         )
         .all<RequestRow>() : Promise.resolve({ results: [] as RequestRow[] }),
       includeMine ? database
@@ -108,11 +108,7 @@ export async function GET(request: Request) {
         )
         .bind(user.id, user.id, user.id)
         .all() : Promise.resolve({ results: [] }),
-      database
-        .prepare(
-          "SELECT * FROM disaster_events WHERE status='ACTIVE' ORDER BY starts_at DESC LIMIT 20",
-        )
-        .all(),
+      includeAdmin&&adminAccess.authenticated?database.prepare("SELECT *,CASE WHEN expires_at<=? THEN 1 ELSE 0 END expired FROM disaster_events WHERE status='ACTIVE' ORDER BY expired DESC,CASE severity WHEN 'CRITICAL' THEN 1 WHEN 'WARNING' THEN 2 WHEN 'WATCH' THEN 3 ELSE 4 END,starts_at DESC LIMIT 100").bind(now).all():database.prepare("SELECT * FROM disaster_events WHERE status='ACTIVE' AND (expires_at IS NULL OR expires_at>?) ORDER BY CASE severity WHEN 'CRITICAL' THEN 1 WHEN 'WARNING' THEN 2 WHEN 'WATCH' THEN 3 ELSE 4 END,starts_at DESC LIMIT 20").bind(now).all(),
       includeAdmin && adminAccess.authenticated
         ? database
             .prepare(

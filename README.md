@@ -53,7 +53,7 @@ Sahaaya is a multi-user community assistance platform for coordinating urgent he
 - After matching, only the requester and accepted helper can see each other's contact information.
 - The requester's exact coordinates are hidden from unrelated users.
 - The helper can voluntarily share a live journey location.
-- The requester sees the helper's position, route, last update, and approximate arrival time.
+- The requester sees the helper's position, last update, and approximate arrival time. A configured routing provider supplies road-route ETA; otherwise the interface clearly labels its straight-line fallback estimate.
 - Maps use Leaflet with OpenStreetMap tiles.
 - The Live Help Map includes every active located request in the current map feed, and selecting a marker opens that request directly.
 
@@ -153,7 +153,7 @@ Browser → Login/Register → Authentication API → PBKDF2 password verificati
 - Normal accounts retain the existing `RESIDENT` role; elevated roles remain server-controlled.
 - Administrator access still requires a Sahaaya session, the database `ADMIN` role, and the additional eight-hour administrator authentication layer.
 
-Authentication tables are `users`, `user_sessions`, `password_reset_tokens`, and `email_verification_tokens`. Reset and verification tokens store hashes, expiration, and consumption time. Email delivery is not currently configured, so the application explicitly reports that no recovery email was sent; a real provider must be connected before issuing public links.
+Authentication tables are `users`, `user_sessions`, `password_reset_tokens`, and `email_verification_tokens`. Reset and verification tokens store hashes, expiration, and consumption time. The application supports Resend transactional delivery through hosting secrets, returns account-enumeration-safe recovery responses, and expires recovery links after 30 minutes. Configure `RESEND_API_KEY`, `SAHAAYA_EMAIL_FROM`, and `SAHAAYA_PUBLIC_URL` in the hosting environment; when they are absent, the interface truthfully reports that no email was sent.
 
 Existing provider-created user rows and IDs are preserved by migration `0009_independent_authentication.sql`, so requests, offers, resources, notifications, and history remain attached to their original owners. Those legacy rows have no invented password. Their owners can visit `/activate-account` once while signed in with the original provider identity, choose a new Sahaaya password, and receive an independent Sahaaya session. The server requires both the trusted provider ID and email to match the preserved row, updates only an account with no password, rate-limits attempts, and records the activation in the audit log. Registering the same email remains rejected to prevent account takeover. After activation, the provider is no longer needed for ordinary Sahaaya login.
 
@@ -309,6 +309,17 @@ The deployed Sites application declares logical storage bindings in `.openai/hos
 - `UPLOADS` — R2 object-storage binding
 
 Sites provisions and wires the hosted resources. Do not put credentials or secrets in `.openai/hosting.json`.
+
+Optional production integrations are configured through Sites runtime variables:
+
+| Variable | Purpose |
+| --- | --- |
+| `RESEND_API_KEY` | Secret API key for verification and recovery email |
+| `SAHAAYA_EMAIL_FROM` | Verified transactional sender identity |
+| `SAHAAYA_PUBLIC_URL` | Canonical HTTPS origin used in secure account links |
+| `SAHAAYA_ROUTING_API_URL` | Optional production OSRM-compatible route service |
+
+The health endpoint reports whether email and route delivery are configured without exposing secret values. See `docs/OPERATIONS.md` for monitoring, backup, recovery, retention, and incident procedures.
 
 The optional Express API uses `server/.env`. Create it from the safe template:
 

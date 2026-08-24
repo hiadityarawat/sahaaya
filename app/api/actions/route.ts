@@ -14,6 +14,8 @@ import {
 import { requireAdminSession } from "../../../lib/admin-auth";
 import { env } from "cloudflare:workers";
 import { sameOrigin } from "../../../lib/user-auth";
+import { emailDeliveryConfigured } from "../../../lib/email-delivery";
+import { estimateArrival } from "../../../lib/routing";
 
 const allowedStatus=["ACCEPTED","IN_PROGRESS"];
 const categories=["FOOD","WATER","MEDICAL","SHELTER","RESCUE","CLOTHES","TRANSPORT","OTHER"];
@@ -22,7 +24,6 @@ const codeLifetimeMs=45*60_000;
 const maxCodeAttempts=5;
 
 function validCoordinate(value:number,min:number,max:number){return Number.isFinite(value)&&value>=min&&value<=max}
-function etaMinutes(fromLat:number,fromLng:number,toLat:number,toLng:number){const rad=(v:number)=>v*Math.PI/180;const dLat=rad(toLat-fromLat),dLng=rad(toLng-fromLng);const a=Math.sin(dLat/2)**2+Math.cos(rad(fromLat))*Math.cos(rad(toLat))*Math.sin(dLng/2)**2;const km=6371*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));return Math.max(2,Math.ceil(km/22*60+3))}
 function newDeliveryCode(){const value=new Uint32Array(1);crypto.getRandomValues(value);return String(100000+(value[0]%900000))}
 function actionError(error:unknown){
   if(error instanceof AuthenticationRequiredError)return Response.json({error:"Sign in to continue."},{status:401});
@@ -40,6 +41,8 @@ export async function POST(request:Request) {
     try{body=await request.json() as Record<string,unknown>}catch{return Response.json({error:"Invalid request body."},{status:400})}
     const database=db();const time=timestamp();
     const action=String(body.action??"");
+    const verifiedActions=new Set(["create_request","offer_help","accept_offer","generate_delivery_code","confirm_delivery","update_delivery_location","add_resource","report"]);
+    if(emailDeliveryConfigured()&&!user.email_verified&&verifiedActions.has(action))return Response.json({error:"Verify your email address in Security settings before coordinating help."},{status:403});
     const adminSensitiveActions=new Set(["update_status","availability","assign_volunteer","adjust_resource","delete_resource","verify_resource","review_report","verify_org","create_event","delete_event","manage_user"]);
     if(user.role==="ADMIN"&&adminSensitiveActions.has(action))await requireAdminSession(user,request.headers);
 
@@ -85,14 +88,14 @@ export async function POST(request:Request) {
       if(!offer)return Response.json({error:"This offer is no longer available."},{status:404});
       if(offer.requester_id!==user.id)return Response.json({error:"Only the person who requested help can accept an offer."},{status:403});
       if(offer.status!=="OPEN")return Response.json({error:"This request is already being handled."},{status:409});
-      const claimed=await database.prepare("UPDATE help_requests SET accepted_by=?,status='ACCEPTED',delivery_code=NULL,delivery_code_hash=NULL,delivery_code_expires_at=NULL,delivery_code_attempts=0,updated_at=? WHERE id=? AND status='OPEN' AND accepted_by IS NULL").bind(offer.helper_id,time,offer.request_id).run();
-      if(!claimed.meta.changes)return Response.json({error:"Another helper has already been accepted for this request."},{status:409});
-      await database.batch([
-        database.prepare("UPDATE help_offers SET status=CASE WHEN id=? THEN 'ACCEPTED' ELSE 'DECLINED' END,updated_at=? WHERE request_id=? AND status='PENDING'").bind(offerId,time,offer.request_id),
-        database.prepare("INSERT INTO request_updates(request_id,author_id,status,body,created_at) VALUES(?,?,'ACCEPTED','A helper was accepted. Private contact is now shared between both people.',?)").bind(offer.request_id,user.id,time),
-        database.prepare("INSERT INTO notifications(id,user_id,title,body,type,created_at) VALUES(?,?, 'Your help offer was accepted',?,'OFFER_ACCEPTED',?)").bind(makeId("note"),offer.helper_id,`${offer.request_id}: contact details are now available. Generate a confirmation code only when delivery is ready.`,time),
-        database.prepare("INSERT INTO audit_logs(actor_id,action,entity_type,entity_id,metadata,created_at) VALUES(?,'ACCEPT_OFFER','REQUEST',?,'{}',?)").bind(user.id,offer.request_id,time),
+      const accepted=await database.batch([
+        database.prepare("UPDATE help_requests SET accepted_by=?,status='ACCEPTED',delivery_code=NULL,delivery_code_hash=NULL,delivery_code_expires_at=NULL,delivery_code_attempts=0,updated_at=? WHERE id=? AND status='OPEN' AND accepted_by IS NULL").bind(offer.helper_id,time,offer.request_id),
+        database.prepare("UPDATE help_offers SET status=CASE WHEN id=? THEN 'ACCEPTED' ELSE 'DECLINED' END,updated_at=? WHERE request_id=? AND status='PENDING' AND EXISTS(SELECT 1 FROM help_requests WHERE id=? AND accepted_by=? AND status='ACCEPTED' AND updated_at=?)").bind(offerId,time,offer.request_id,offer.request_id,offer.helper_id,time),
+        database.prepare("INSERT INTO request_updates(request_id,author_id,status,body,created_at) SELECT ?,?,'ACCEPTED','A helper was accepted. Private contact is now shared between both people.',? WHERE EXISTS(SELECT 1 FROM help_requests WHERE id=? AND accepted_by=? AND status='ACCEPTED' AND updated_at=?)").bind(offer.request_id,user.id,time,offer.request_id,offer.helper_id,time),
+        database.prepare("INSERT INTO notifications(id,user_id,title,body,type,created_at) SELECT ?,?,'Your help offer was accepted',?,'OFFER_ACCEPTED',? WHERE EXISTS(SELECT 1 FROM help_requests WHERE id=? AND accepted_by=? AND status='ACCEPTED' AND updated_at=?)").bind(makeId("note"),offer.helper_id,`${offer.request_id}: contact details are now available. Generate a confirmation code only when delivery is ready.`,time,offer.request_id,offer.helper_id,time),
+        database.prepare("INSERT INTO audit_logs(actor_id,action,entity_type,entity_id,metadata,created_at) SELECT ?,'ACCEPT_OFFER','REQUEST',?,'{}',? WHERE EXISTS(SELECT 1 FROM help_requests WHERE id=? AND accepted_by=? AND status='ACCEPTED' AND updated_at=?)").bind(user.id,offer.request_id,time,offer.request_id,offer.helper_id,time),
       ]);
+      if(!accepted[0].meta.changes)return Response.json({error:"Another helper has already been accepted for this request."},{status:409});
       return Response.json({ok:true});
     }
 
@@ -124,20 +127,19 @@ export async function POST(request:Request) {
         await database.prepare("UPDATE help_requests SET delivery_code_attempts=delivery_code_attempts+1,updated_at=? WHERE id=? AND requester_id=? AND status IN ('ACCEPTED','IN_PROGRESS')").bind(time,requestId,user.id).run();
         return Response.json({error:"That delivery code is incorrect."},{status:400});
       }
-      const completed=await database.prepare("UPDATE help_requests SET status='RESOLVED',delivery_code=NULL,delivery_code_hash=NULL,delivery_code_expires_at=NULL,delivery_code_attempts=0,helper_lat=NULL,helper_lng=NULL,eta_minutes=NULL,updated_at=? WHERE id=? AND requester_id=? AND delivery_code_hash=? AND status IN ('ACCEPTED','IN_PROGRESS')").bind(time,requestId,user.id,hash).run();
-      if(!completed.meta.changes)return Response.json({error:"This delivery was already completed or the code changed."},{status:409});
-      await database.batch([
-        database.prepare("INSERT INTO request_updates(request_id,author_id,status,body,created_at) VALUES(?,?,'RESOLVED','Delivery confirmed with a one-time code.',?)").bind(requestId,user.id,time),
-        database.prepare("INSERT INTO notifications(id,user_id,title,body,type,created_at) VALUES(?,?, 'Delivery confirmed',?,'DELIVERY_CONFIRMED',?)").bind(makeId("note"),target.accepted_by,`${requestId} was confirmed and completed.`,time),
-        database.prepare("INSERT INTO audit_logs(actor_id,action,entity_type,entity_id,metadata,created_at) VALUES(?,'CONFIRM_DELIVERY','REQUEST',?,'{}',?)").bind(user.id,requestId,time),
+      const completed=await database.batch([
+        database.prepare("UPDATE help_requests SET status='RESOLVED',delivery_code=NULL,delivery_code_hash=NULL,delivery_code_expires_at=NULL,delivery_code_attempts=0,helper_lat=NULL,helper_lng=NULL,eta_minutes=NULL,updated_at=? WHERE id=? AND requester_id=? AND delivery_code_hash=? AND status IN ('ACCEPTED','IN_PROGRESS')").bind(time,requestId,user.id,hash),
+        database.prepare("INSERT INTO request_updates(request_id,author_id,status,body,created_at) SELECT ?,?,'RESOLVED','Delivery confirmed with a one-time code.',? WHERE EXISTS(SELECT 1 FROM help_requests WHERE id=? AND requester_id=? AND status='RESOLVED' AND updated_at=?)").bind(requestId,user.id,time,requestId,user.id,time),
+        database.prepare("INSERT INTO notifications(id,user_id,title,body,type,created_at) SELECT ?,?,'Delivery confirmed',?,'DELIVERY_CONFIRMED',? WHERE EXISTS(SELECT 1 FROM help_requests WHERE id=? AND requester_id=? AND status='RESOLVED' AND updated_at=?)").bind(makeId("note"),target.accepted_by,`${requestId} was confirmed and completed.`,time,requestId,user.id,time),
+        database.prepare("INSERT INTO audit_logs(actor_id,action,entity_type,entity_id,metadata,created_at) SELECT ?,'CONFIRM_DELIVERY','REQUEST',?,'{}',? WHERE EXISTS(SELECT 1 FROM help_requests WHERE id=? AND requester_id=? AND status='RESOLVED' AND updated_at=?)").bind(user.id,requestId,time,requestId,user.id,time),
       ]);
+      if(!completed[0].meta.changes)return Response.json({error:"This delivery was already completed or the code changed."},{status:409});
       return Response.json({ok:true});
     }
 
     if(body.action==="cancel_request"){
-      const requestId=String(body.id);const result=await database.prepare("UPDATE help_requests SET status='CANCELLED',updated_at=? WHERE id=? AND requester_id=? AND status='OPEN' AND accepted_by IS NULL").bind(time,requestId,user.id).run();
-      if(!result.meta.changes)return Response.json({error:"Only an unclaimed request can be cancelled by its requester."},{status:409});
-      await database.batch([database.prepare("UPDATE help_offers SET status='DECLINED',updated_at=? WHERE request_id=? AND status='PENDING'").bind(time,requestId),database.prepare("INSERT INTO request_updates(request_id,author_id,status,body,created_at) VALUES(?,?,'CANCELLED','The requester cancelled this unclaimed request.',?)").bind(requestId,user.id,time)]);return Response.json({ok:true});
+      const requestId=String(body.id);const result=await database.batch([database.prepare("UPDATE help_requests SET status='CANCELLED',updated_at=? WHERE id=? AND requester_id=? AND status='OPEN' AND accepted_by IS NULL").bind(time,requestId,user.id),database.prepare("UPDATE help_offers SET status='DECLINED',updated_at=? WHERE request_id=? AND status='PENDING' AND EXISTS(SELECT 1 FROM help_requests WHERE id=? AND requester_id=? AND status='CANCELLED' AND updated_at=?)").bind(time,requestId,requestId,user.id,time),database.prepare("INSERT INTO request_updates(request_id,author_id,status,body,created_at) SELECT ?,?,'CANCELLED','The requester cancelled this unclaimed request.',? WHERE EXISTS(SELECT 1 FROM help_requests WHERE id=? AND requester_id=? AND status='CANCELLED' AND updated_at=?)").bind(requestId,user.id,time,requestId,user.id,time)]);
+      if(!result[0].meta.changes)return Response.json({error:"Only an unclaimed request can be cancelled by its requester."},{status:409});return Response.json({ok:true});
     }
 
     if(body.action==="delete_request"){
@@ -146,7 +148,7 @@ export async function POST(request:Request) {
       const removed=await database.prepare("DELETE FROM help_requests WHERE id=? AND requester_id=? AND accepted_by IS NULL AND status IN ('OPEN','CANCELLED')").bind(requestId,user.id).run();
       if(!removed.meta.changes)return Response.json({error:"The request changed and was not deleted."},{status:409});
       await database.batch([database.prepare("DELETE FROM help_offers WHERE request_id=?").bind(requestId),database.prepare("DELETE FROM request_updates WHERE request_id=?").bind(requestId),database.prepare("DELETE FROM reports WHERE request_id=?").bind(requestId),database.prepare("DELETE FROM uploaded_files WHERE request_id=?").bind(requestId)]);
-      if(target.image_key)await env.UPLOADS.delete(target.image_key);return Response.json({ok:true});
+      if(target.image_key){try{await env.UPLOADS.delete(target.image_key)}catch(error){console.error("Sahaaya orphaned upload cleanup required",requestId,error)}}return Response.json({ok:true});
     }
 
     if(body.action==="update_delivery_location"){
@@ -155,10 +157,10 @@ export async function POST(request:Request) {
       if(!validCoordinate(latitude,-90,90)||!validCoordinate(longitude,-180,180))return Response.json({error:"A valid live location is required."},{status:400});
       const target=await database.prepare("SELECT approx_lat,approx_lng,accepted_by,status FROM help_requests WHERE id=?").bind(requestId).first<{approx_lat:number|null;approx_lng:number|null;accepted_by:string|null;status:string}>();
       if(!target)return Response.json({error:"Request not found."},{status:404});if(target.accepted_by!==user.id)return Response.json({error:"Only the accepted helper can share delivery progress."},{status:403});if(!activeDeliveryStatuses.includes(target.status))return Response.json({error:"Tracking has ended for this request."},{status:409});
-      const eta=target.approx_lat!=null&&target.approx_lng!=null?etaMinutes(latitude,longitude,target.approx_lat,target.approx_lng):null;
-      const updated=await database.prepare("UPDATE help_requests SET helper_lat=?,helper_lng=?,eta_minutes=?,delivery_started_at=COALESCE(delivery_started_at,?),delivery_updated_at=?,status=CASE WHEN status='ACCEPTED' THEN 'IN_PROGRESS' ELSE status END,updated_at=? WHERE id=? AND accepted_by=? AND status IN ('ACCEPTED','IN_PROGRESS')").bind(latitude,longitude,eta,time,time,time,requestId,user.id).run();
+      const estimate=target.approx_lat!=null&&target.approx_lng!=null?await estimateArrival(latitude,longitude,target.approx_lat,target.approx_lng):null,eta=estimate?.minutes??null;
+      const updated=await database.prepare("UPDATE help_requests SET helper_lat=?,helper_lng=?,eta_minutes=?,eta_source=?,delivery_started_at=COALESCE(delivery_started_at,?),delivery_updated_at=?,status=CASE WHEN status='ACCEPTED' THEN 'IN_PROGRESS' ELSE status END,updated_at=? WHERE id=? AND accepted_by=? AND status IN ('ACCEPTED','IN_PROGRESS')").bind(latitude,longitude,eta,estimate?.source??null,time,time,time,requestId,user.id).run();
       if(!updated.meta.changes)return Response.json({error:"Tracking has ended for this request."},{status:409});
-      return Response.json({ok:true,eta,deliveryUpdatedAt:time});
+      return Response.json({ok:true,eta,etaSource:estimate?.source??null,deliveryUpdatedAt:time});
     }
 
     if(body.action==="update_status"){
@@ -199,9 +201,8 @@ export async function POST(request:Request) {
     if(body.action==="adjust_resource"){
       const resourceId=String(body.id),delta=Number(body.delta),note=String(body.note||"").trim().slice(0,250);
       if(!Number.isInteger(delta)||delta===0||note.length<3)return Response.json({error:"Enter a valid quantity change and reason."},{status:400});
-      const result=await database.prepare("UPDATE resources SET quantity=quantity+?,updated_at=? WHERE id=? AND quantity+?>=0 AND (owner_id=? OR ?='ADMIN')").bind(delta,time,resourceId,delta,user.id,user.role).run();
-      if(!result.meta.changes)return Response.json({error:"Only the resource owner can update it, and stock cannot become negative."},{status:409});
-      await database.prepare("INSERT INTO resource_transactions(resource_id,delta,note,actor_id,created_at) VALUES(?,?,?,?,?)").bind(resourceId,delta,note,user.id,time).run();return Response.json({ok:true});
+      const result=await database.batch([database.prepare("UPDATE resources SET quantity=quantity+?,updated_at=? WHERE id=? AND quantity+?>=0 AND (owner_id=? OR ?='ADMIN')").bind(delta,time,resourceId,delta,user.id,user.role),database.prepare("INSERT INTO resource_transactions(resource_id,delta,note,actor_id,created_at) SELECT ?,?,?,?,? WHERE EXISTS(SELECT 1 FROM resources WHERE id=? AND updated_at=?)").bind(resourceId,delta,note,user.id,time,resourceId,time)]);
+      if(!result[0].meta.changes)return Response.json({error:"Only the resource owner can update it, and stock cannot become negative."},{status:409});return Response.json({ok:true});
     }
     if(body.action==="delete_resource"){
       const resourceId=String(body.id);const removed=await database.prepare("DELETE FROM resources WHERE id=? AND (owner_id=? OR ?='ADMIN')").bind(resourceId,user.id,user.role).run();
@@ -226,9 +227,10 @@ export async function POST(request:Request) {
       requireRole(user,["ADMIN"]);const orgId=String(body.id),verified=body.verified?1:0;await database.batch([database.prepare("UPDATE organizations SET verified=? WHERE id=?").bind(verified,orgId),database.prepare("INSERT INTO audit_logs(actor_id,action,entity_type,entity_id,metadata,created_at) VALUES(?,'VERIFY_ORGANIZATION','ORGANIZATION',?,?,?)").bind(user.id,orgId,JSON.stringify({verified:!!verified}),time)]);return Response.json({ok:true});
     }
     if(body.action==="create_event"){
-      requireRole(user,["ADMIN"]);const name=String(body.name||"").trim(),areas=[...new Set(String(body.areas||"").split(",").map(v=>v.trim()).filter(Boolean))],latitude=Number(body.latitude),longitude=Number(body.longitude),safetyInfo=String(body.safetyInfo||"").trim(),emergencyGuidance=String(body.emergencyGuidance||"").trim(),requestedStart=String(body.startsAt||"").trim(),parsedStart=requestedStart?new Date(requestedStart):null,startsAt=parsedStart&&!Number.isNaN(parsedStart.getTime())?parsedStart.toISOString():time;
+      requireRole(user,["ADMIN"]);const name=String(body.name||"").trim(),areas=[...new Set(String(body.areas||"").split(",").map(v=>v.trim()).filter(Boolean))],latitude=Number(body.latitude),longitude=Number(body.longitude),safetyInfo=String(body.safetyInfo||"").trim(),emergencyGuidance=String(body.emergencyGuidance||"").trim(),severity=String(body.severity||"ADVISORY"),sourceName=String(body.sourceName||"").trim(),sourceUrl=String(body.sourceUrl||"").trim(),requestedStart=String(body.startsAt||"").trim(),requestedExpiry=String(body.expiresAt||"").trim(),parsedStart=requestedStart?new Date(requestedStart):null,parsedExpiry=requestedExpiry?new Date(requestedExpiry):null,startsAt=parsedStart&&!Number.isNaN(parsedStart.getTime())?parsedStart.toISOString():time,expiresAt=parsedExpiry&&!Number.isNaN(parsedExpiry.getTime())?parsedExpiry.toISOString():null;
       if(name.length<3||name.length>160||!areas.length||areas.length>20||areas.some(area=>area.length>120))return Response.json({error:"Enter a valid event name and affected areas."},{status:400});if(!validCoordinate(latitude,-90,90)||!validCoordinate(longitude,-180,180))return Response.json({error:"Enter a valid approximate map position."},{status:400});if(safetyInfo.length<10||safetyInfo.length>1000||emergencyGuidance.length<10||emergencyGuidance.length>1000)return Response.json({error:"Add clear safety information and emergency-service guidance."},{status:400});if(requestedStart&&(!parsedStart||Number.isNaN(parsedStart.getTime())))return Response.json({error:"Enter a valid event start time."},{status:400});
-      const eventId=makeId("event");await database.batch([database.prepare("INSERT INTO disaster_events(id,name,status,affected_areas,approx_lat,approx_lng,safety_info,emergency_guidance,starts_at,created_at) VALUES(?,?,'ACTIVE',?,?,?,?,?,?,?)").bind(eventId,name,JSON.stringify(areas),latitude,longitude,safetyInfo,emergencyGuidance,startsAt,time),database.prepare("INSERT INTO audit_logs(actor_id,action,entity_type,entity_id,metadata,created_at) VALUES(?,'CREATE_EVENT','EVENT',?,?,?)").bind(user.id,eventId,JSON.stringify({name,areas,latitude,longitude}),time)]);return Response.json({ok:true,id:eventId});
+      if(!["ADVISORY","WATCH","WARNING","CRITICAL"].includes(severity)||sourceName.length<3||sourceName.length>160)return Response.json({error:"Select a severity and identify the official information source."},{status:400});if(sourceUrl){try{const url=new URL(sourceUrl);if(url.protocol!=="https:")throw new Error()}catch{return Response.json({error:"Use a valid HTTPS source link."},{status:400})}}if(!expiresAt||Date.parse(expiresAt)<=Date.parse(startsAt))return Response.json({error:"The event expiry must be after its start time."},{status:400});
+      const eventId=makeId("event");await database.batch([database.prepare("INSERT INTO disaster_events(id,name,status,affected_areas,approx_lat,approx_lng,safety_info,emergency_guidance,severity,source_name,source_url,verified_at,expires_at,starts_at,created_at,updated_at) VALUES(?,?,'ACTIVE',?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(eventId,name,JSON.stringify(areas),latitude,longitude,safetyInfo,emergencyGuidance,severity,sourceName,sourceUrl||null,time,expiresAt,startsAt,time,time),database.prepare("INSERT INTO audit_logs(actor_id,action,entity_type,entity_id,metadata,created_at) VALUES(?,'CREATE_EVENT','EVENT',?,?,?)").bind(user.id,eventId,JSON.stringify({name,areas,latitude,longitude,severity,sourceName,sourceUrl,expiresAt}),time)]);return Response.json({ok:true,id:eventId});
     }
     if(body.action==="delete_event"){
       requireRole(user,["ADMIN"]);const eventId=String(body.id||"").trim();const event=await database.prepare("SELECT id,name FROM disaster_events WHERE id=?").bind(eventId).first<{id:string;name:string}>();if(!event)return Response.json({error:"Disaster event not found."},{status:404});
