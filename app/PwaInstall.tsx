@@ -64,7 +64,7 @@ export default function PwaInstall() {
   if (!visible) return null;
   return (
     <aside className="pwa-install" aria-label="Install Sahaaya app">
-      <span className="pwa-install-mark" aria-hidden="true">✦</span>
+      <span className="pwa-install-mark brand-logo-mark" aria-hidden="true" />
       <div>
         <b>Install Sahaaya</b>
         <small>{showIOSHelp ? "Tap Share, then Add to Home Screen." : "Faster access on this device"}</small>

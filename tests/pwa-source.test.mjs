@@ -31,3 +31,20 @@ test("install prompt and app shortcuts are wired", async () => {
   assert.match(platform, /shortcutView === "map"/);
   assert.match(platform, /params\.get\("action"\) === "request-help"/);
 });
+
+test("the supplied Sahaaya monogram is used across website and app branding", async () => {
+  const [layout, landing, platform, install, worker] = await Promise.all([
+    readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/Landing.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/Platform.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/PwaInstall.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../public/sw.js", import.meta.url), "utf8"),
+  ]);
+  await access(new URL("../public/brand/sahaaya-logo.png", import.meta.url));
+  await access(new URL("../public/brand/sahaaya-mark.png", import.meta.url));
+  assert.match(layout, /favicon\.png/);
+  assert.match(landing, /brand-logo-mark/);
+  assert.match(platform, /side-brand[\s\S]*brand-logo-mark/);
+  assert.match(install, /pwa-install-mark brand-logo-mark/);
+  assert.match(worker, /sahaaya-mark\.png/);
+});

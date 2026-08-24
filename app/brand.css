@@ -1,0 +1,68 @@
+.brand-logo-mark {
+  display: inline-block;
+  background-image: url("/brand/sahaaya-mark.png") !important;
+  background-repeat: no-repeat !important;
+  background-position: center !important;
+  background-size: contain !important;
+}
+
+.side-brand > .brand-logo-mark {
+  width: 38px;
+  height: 38px;
+  padding: 5px;
+  border-radius: 10px;
+  background-color: #f7f5ef !important;
+}
+
+.mobile-nav-drawer > header > .brand-logo-mark {
+  width: 42px;
+  height: 42px;
+  padding: 6px;
+  border-radius: 12px;
+  background-color: #f7f5ef !important;
+}
+
+.mobile-brand-mark.brand-logo-mark,
+.pwa-install-mark.brand-logo-mark {
+  background-color: #f7f5ef !important;
+  padding: 4px;
+}
+
+.intro-emblem > .brand-logo-mark {
+  background-color: #edf7f2 !important;
+  background-size: 72% !important;
+}
+
+.network-loader .brand-logo-mark {
+  width: 28px !important;
+  height: 28px !important;
+  background-color: transparent !important;
+  animation: counterRoll 0.9s linear infinite;
+}
+
+.public-brand > span.brand-logo-mark {
+  width: 42px;
+  height: 42px;
+  display: block;
+  padding: 5px;
+  border-radius: 12px;
+  background-color: #f7f5ef !important;
+}
+
+.public-brand > span.brand-logo-mark + b {
+  letter-spacing: 0.14em;
+}
+
+.auth-brand i.brand-logo-mark {
+  width: 46px;
+  height: 46px;
+  padding: 6px;
+  background-color: #f7f5ef !important;
+}
+
+@media (max-width: 390px) {
+  .public-brand > span.brand-logo-mark {
+    width: 38px;
+    height: 38px;
+  }
+}

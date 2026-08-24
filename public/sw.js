@@ -1,6 +1,6 @@
-const CACHE_NAME = "sahaaya-shell-v1";
+const CACHE_NAME = "sahaaya-shell-v2";
 const OFFLINE_URL = "/offline.html";
-const SAFE_ASSETS = [OFFLINE_URL, "/favicon.svg", "/icons/sahaaya-192.png", "/icons/sahaaya-512.png"];
+const SAFE_ASSETS = [OFFLINE_URL, "/favicon.png", "/brand/sahaaya-mark.png", "/icons/sahaaya-192.png", "/icons/sahaaya-512.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(SAFE_ASSETS)));

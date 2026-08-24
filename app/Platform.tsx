@@ -336,7 +336,7 @@ export default function Platform() {
       </a>
       <aside className="sidebar">
         <button className="side-brand" onClick={() => navigateTo("overview")}>
-          <span>✦</span>
+          <span className="brand-logo-mark" aria-hidden="true" />
           <b>
             SAHAAYA<small>Response Network</small>
           </b>
@@ -397,7 +397,7 @@ export default function Platform() {
             aria-label="Sahaaya navigation"
           >
             <header>
-              <span>✦</span>
+              <span className="brand-logo-mark" aria-hidden="true" />
               <div>
                 <b>SAHAAYA</b>
                 <small>All sections</small>
@@ -448,7 +448,7 @@ export default function Platform() {
             onClick={() => navigateTo("overview")}
             aria-label="Open Sahaaya community dashboard"
           >
-            <span className="mobile-brand-mark">✦</span>
+            <span className="mobile-brand-mark brand-logo-mark" aria-hidden="true" />
             <span className="mobile-brand-word" aria-hidden="true">
               {"SAHAAYA".split("").map((letter, index) => (
                 <i key={`${letter}-${index}`} style={{ "--brand-letter": index } as CSSProperties}>
@@ -660,7 +660,7 @@ export default function Platform() {
 function Loading() {
   return (
     <div className="loading-state" role="status" aria-live="polite">
-      <span className="network-loader"><i>✦</i></span>
+      <span className="network-loader"><i className="brand-logo-mark" /></span>
       <p>Synchronizing response network…</p>
     </div>
   );
@@ -671,7 +671,7 @@ function SahaayaIntro() {
     <div className="sahaaya-intro" role="status" aria-label="Sahaaya is loading">
       <div className="intro-emblem">
         <span className="intro-orbit"><i /></span>
-        <b>✦</b>
+        <b className="brand-logo-mark" />
       </div>
       <div className="intro-wordmark" aria-hidden="true">
         {"SAHAAYA".split("").map((letter, index) => (
