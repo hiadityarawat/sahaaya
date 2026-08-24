@@ -2,6 +2,13 @@
 
 Sahaaya is a multi-user community assistance platform for coordinating urgent help during disasters and everyday emergencies. A signed-in user can request food, water, medicine, shelter, rescue, clothing, transportation, or another essential service. Other community members can offer support, the requester selects exactly one helper, and both users can coordinate privately through live location tracking and a delivery confirmation code.
 
+Sahaaya is also an installable Progressive Web App (PWA). On supported phones,
+tablets, Chromebooks, Windows, macOS, and Linux devices, use the browser's
+**Install Sahaaya** option to add it to the home screen or app launcher. The
+installed app uses the same secure account and live community data as the
+website. When the network is unavailable, it shows a safe offline screen and
+never caches private API responses.
+
 **Live application:** [sahaaya-disaster-response.hi-aditya-rawat.chatgpt.site](https://sahaaya-disaster-response.hi-aditya-rawat.chatgpt.site/)
 
 > Sahaaya supports community coordination; it is not a replacement for police, fire, ambulance, or other official emergency services. In a life-threatening emergency, contact the appropriate local authority first.

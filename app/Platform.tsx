@@ -176,6 +176,15 @@ export default function Platform() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const hasLoadedOnce = useRef(false);
   const seenNotifications = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const params = new URLSearchParams(window.location.search);
+      const shortcutView = params.get("view");
+      if (shortcutView === "map") setView("map");
+      if (params.get("action") === "request-help") setShowRequest(true);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
   const [accessibility, setAccessibility] = useState<AccessibilityPreferences>(
     () => {
       if (typeof window === "undefined") return defaultAccessibility;

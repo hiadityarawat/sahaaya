@@ -1,7 +1,8 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import "./fixes.css";
+import PwaInstall from "./PwaInstall";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -16,10 +17,34 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Sahaaya — Community Help Network",
   description: "Request emergency help or offer food, medical support, shelter, transport, and essential supplies to people nearby.",
-  icons: {
-    icon: "/favicon.svg",
-    shortcut: "/favicon.svg",
+  applicationName: "Sahaaya",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Sahaaya",
   },
+  formatDetection: {
+    telephone: true,
+  },
+  icons: {
+    icon: [
+      { url: "/favicon.svg", type: "image/svg+xml" },
+      { url: "/icons/sahaaya-192.png", sizes: "192x192", type: "image/png" },
+    ],
+    shortcut: "/favicon.svg",
+    apple: [{ url: "/icons/sahaaya-192.png", sizes: "192x192", type: "image/png" }],
+  },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f7f8f5" },
+    { media: "(prefers-color-scheme: dark)", color: "#123d33" },
+  ],
 };
 
 export default function RootLayout({
@@ -33,6 +58,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         {children}
+        <PwaInstall />
       </body>
     </html>
   );

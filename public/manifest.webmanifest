@@ -1,0 +1,47 @@
+{
+  "id": "/",
+  "name": "Sahaaya — Community Help Network",
+  "short_name": "Sahaaya",
+  "description": "Request emergency help and coordinate trusted community support across devices.",
+  "lang": "en",
+  "dir": "ltr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#f7f8f5",
+  "theme_color": "#123d33",
+  "categories": ["social", "utilities", "medical"],
+  "prefer_related_applications": false,
+  "icons": [
+    {
+      "src": "/icons/sahaaya-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/sahaaya-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Request help",
+      "short_name": "Request help",
+      "description": "Open Sahaaya and create a help request",
+      "url": "/?action=request-help",
+      "icons": [{ "src": "/icons/sahaaya-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Live help map",
+      "short_name": "Help map",
+      "description": "View nearby active help requests",
+      "url": "/?view=map",
+      "icons": [{ "src": "/icons/sahaaya-192.png", "sizes": "192x192" }]
+    }
+  ]
+}
