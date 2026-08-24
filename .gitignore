@@ -40,3 +40,14 @@ yarn-error.log*
 /.wrangler/
 /outputs/
 /work/
+
+# Native mobile build products and local signing material
+/android/.gradle/
+/android/build/
+/android/app/build/
+/android/local.properties
+/ios/App/DerivedData/
+/ios/App/build/
+*.jks
+*.keystore
+*.mobileprovision

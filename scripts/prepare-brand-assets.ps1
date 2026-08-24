@@ -1,12 +1,14 @@
 param(
   [string]$Source = "public/brand/sahaaya-logo-source.png",
   [string]$BrandDirectory = "public/brand",
-  [string]$IconDirectory = "public/icons"
+  [string]$IconDirectory = "public/icons",
+  [string]$NativeAssetDirectory = "assets"
 )
 
 Add-Type -AssemblyName System.Drawing
 [System.IO.Directory]::CreateDirectory($BrandDirectory) | Out-Null
 [System.IO.Directory]::CreateDirectory($IconDirectory) | Out-Null
+[System.IO.Directory]::CreateDirectory($NativeAssetDirectory) | Out-Null
 
 function Export-Crop([System.Drawing.Bitmap]$Image, [System.Drawing.Rectangle]$Area, [string]$Path, [int]$Padding) {
   $result = [System.Drawing.Bitmap]::new($Area.Width + 2 * $Padding, $Area.Height + 2 * $Padding)
@@ -42,4 +44,5 @@ $mark = [System.Drawing.Bitmap]::FromFile((Resolve-Path (Join-Path $BrandDirecto
 Export-AppIcon $mark 64 "public/favicon.png"
 Export-AppIcon $mark 192 (Join-Path $IconDirectory "sahaaya-192.png")
 Export-AppIcon $mark 512 (Join-Path $IconDirectory "sahaaya-512.png")
+Export-AppIcon $mark 1024 (Join-Path $NativeAssetDirectory "logo.png")
 $mark.Dispose()

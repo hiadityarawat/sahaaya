@@ -5,6 +5,7 @@ import "./fixes.css";
 import "./brand.css";
 import PwaInstall from "./PwaInstall";
 import AppStartupIntro from "./AppStartupIntro";
+import NativeAppBridge from "./NativeAppBridge";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -73,6 +74,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <AppStartupIntro />
+        <NativeAppBridge />
         {children}
         <PwaInstall />
       </body>

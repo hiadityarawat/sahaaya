@@ -44,8 +44,10 @@ export default function AppStartupIntro() {
       if (isInstalledApp() && awayFor >= RESUME_THRESHOLD_MS) play();
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("sahaaya-native-resume", play);
     return () => {
       document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("sahaaya-native-resume", play);
       if (timer.current !== null) window.clearTimeout(timer.current);
     };
   }, [play]);
