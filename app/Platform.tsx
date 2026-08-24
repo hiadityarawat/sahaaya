@@ -326,11 +326,22 @@ export default function Platform() {
         Skip to main content
       </a>
       <aside className="sidebar">
-        <button className="side-brand" onClick={() => navigateTo("overview")}>
+        <button
+          className="side-brand"
+          onClick={() => navigateTo("overview")}
+          aria-label="Open Sahaaya community dashboard"
+        >
           <span className="brand-logo-mark" aria-hidden="true" />
-          <b>
-            SAHAAYA<small>Response Network</small>
-          </b>
+          <span className="side-brand-copy">
+            <b className="side-brand-word" aria-label="SAHAAYA">
+              {"SAHAAYA".split("").map((letter, index) => (
+                <i key={`${letter}-${index}`} style={{ "--brand-letter": index } as CSSProperties} aria-hidden="true">
+                  {letter}
+                </i>
+              ))}
+            </b>
+            <small>Community Help Network</small>
+          </span>
         </button>
         <div className="side-event">
           <i />{" "}
@@ -698,6 +709,25 @@ function PageHead({
   );
 }
 
+function DashboardIdentity() {
+  return (
+    <div className="dashboard-identity">
+      <span className="dashboard-brand-mark brand-logo-mark" aria-hidden="true" />
+      <span className="dashboard-brand-copy">
+        <strong className="dashboard-wordmark" aria-label="SAHAAYA">
+          {"SAHAAYA".split("").map((letter, index) => (
+            <i key={`${letter}-${index}`} style={{ "--dashboard-letter": index } as CSSProperties} aria-hidden="true">
+              {letter}
+            </i>
+          ))}
+        </strong>
+        <small>Community Response Dashboard</small>
+      </span>
+      <span className="dashboard-live"><i /> Network live</span>
+    </div>
+  );
+}
+
 function Overview({
   data,
   active,
@@ -719,6 +749,7 @@ function Overview({
   );
   return (
     <div className="overview-home">
+      <DashboardIdentity />
       <PageHead
         eyebrow="LIVE COMMUNITY NETWORK · UPDATED AUTOMATICALLY"
         title="Ask for help. Offer what you can."
@@ -787,9 +818,15 @@ function Overview({
             }
           />
           <div className="priority-list">
-            {active.slice(0, 5).map((item) => (
+            {active.length ? active.slice(0, 5).map((item) => (
               <RequestRow key={item.id} item={item} select={select} />
-            ))}
+            )) : (
+              <div className="priority-empty">
+                <span aria-hidden="true">✓</span>
+                <b>No urgent requests waiting</b>
+                <p>The queue updates automatically when a community member asks for help.</p>
+              </div>
+            )}
           </div>
           <div className="privacy-strip">
             ⌾ <b>Privacy protected</b>
