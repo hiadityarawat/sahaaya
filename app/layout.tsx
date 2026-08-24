@@ -4,6 +4,7 @@ import "./globals.css";
 import "./fixes.css";
 import "./brand.css";
 import PwaInstall from "./PwaInstall";
+import AppStartupIntro from "./AppStartupIntro";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -71,6 +72,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+        <AppStartupIntro />
         {children}
         <PwaInstall />
       </body>

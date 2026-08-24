@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, jsx-a11y/no-static-element-interactions, jsx-a11y/no-noninteractive-element-interactions */
 "use client";
 
-import { type CSSProperties, FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { type CSSProperties, FormEvent, startTransition, useCallback, useEffect, useRef, useState } from "react";
 import LiveHelpMap from "./ReliableHelpMap";
 import SignOutButton from "./SignOutButton";
 
@@ -164,7 +164,6 @@ export default function Platform() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
-  const [showIntro, setShowIntro] = useState(true);
   const [deliverySuccess, setDeliverySuccess] = useState(false);
   const [view, setView] = useState("overview");
   const [q, setQ] = useState("");
@@ -198,13 +197,6 @@ export default function Platform() {
       }
     },
   );
-  useEffect(() => {
-    const timer = window.setTimeout(
-      () => setShowIntro(false),
-      accessibility.reduceMotion ? 300 : 6000,
-    );
-    return () => window.clearTimeout(timer);
-  }, [accessibility.reduceMotion]);
   const load = useCallback(
     async (silent = false) => {
       const showBlockingLoader = !silent && !hasLoadedOnce.current;
@@ -318,19 +310,18 @@ export default function Platform() {
       : []),
   ];
   const navigateTo = (destination: string) => {
-    setView(destination);
     setMobileMenuOpen(false);
     setShowNotifications(false);
+    startTransition(() => setView(destination));
     window.requestAnimationFrame(() =>
       window.scrollTo({
         top: 0,
-        behavior: accessibility.reduceMotion ? "auto" : "smooth",
+        behavior: "auto",
       }),
     );
   };
   return (
     <main className="platform-shell">
-      {showIntro && <SahaayaIntro />}
       <a className="skip-link" href="#main-workspace">
         Skip to main content
       </a>
@@ -662,24 +653,6 @@ function Loading() {
     <div className="loading-state" role="status" aria-live="polite">
       <span className="network-loader"><i className="brand-logo-mark" /></span>
       <p>Synchronizing response network…</p>
-    </div>
-  );
-}
-
-function SahaayaIntro() {
-  return (
-    <div className="sahaaya-intro" role="status" aria-label="Sahaaya is loading">
-      <div className="intro-emblem">
-        <span className="intro-orbit"><i /></span>
-        <b className="brand-logo-mark" />
-      </div>
-      <div className="intro-wordmark" aria-hidden="true">
-        {"SAHAAYA".split("").map((letter, index) => (
-          <span key={`${letter}-${index}`} style={{ "--letter": index } as CSSProperties}>{letter}</span>
-        ))}
-      </div>
-      <p>Community Response Network</p>
-      <span className="intro-progress"><i /></span>
     </div>
   );
 }
