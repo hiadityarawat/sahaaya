@@ -43,3 +43,30 @@
 @media(max-width:1050px){.auth-login .auth-story>.auth-showcase{width:min(100%,650px)}.auth-showcase-stage{width:min(100%,500px)}.auth-showcase-copy h1{font-size:42px}}
 @media(max-width:820px){.auth-login .auth-story{min-height:565px}.auth-login .auth-story>.auth-showcase{grid-template-columns:1fr;gap:13px;margin:22px auto 0}.auth-showcase-copy h1{max-width:520px;font-size:clamp(32px,7vw,42px)}.auth-showcase-stage{width:min(100%,430px)}.auth-login .auth-card{width:min(100%,560px)}}
 @media(max-width:560px){.auth-login .auth-story{min-height:485px}.auth-login .auth-story>.auth-showcase{margin-top:18px}.auth-showcase-copy h1{font-size:31px}.auth-showcase-stage{width:min(100%,315px)}.showcase-scene{grid-template-rows:32px 1fr 28px;border-radius:14px}.showcase-request{padding:6px;gap:5px}.showcase-request>i{width:21px;height:21px}.showcase-request small,.showcase-request em{font-size:4px}.showcase-request b{font-size:6px}.showcase-scene>header>span,.showcase-caption{font-size:5px}.showcase-scene>header small,.showcase-scene>footer{font-size:4px}.auth-showcase-copy>span{display:none}}
+
+/* Laptop performance pass: retain the journey while keeping every animated
+   layer on inexpensive compositor-friendly transforms. */
+@media(min-width:821px){
+  .auth-showcase-stage{perspective:none;transform-style:flat;contain:layout paint}
+  .showcase-scene{
+    transform-style:flat;
+    will-change:transform;
+    backface-visibility:hidden;
+    box-shadow:0 22px 48px #061d1755,inset 0 1px #fff;
+    animation-name:showcaseSceneJourneyDesktop;
+    animation-timing-function:ease-in-out;
+  }
+  .showcase-scene>header,.showcase-scene>footer,.showcase-request,.showcase-caption{backdrop-filter:none}
+  .showcase-glow{filter:none;opacity:.55;will-change:opacity,transform}
+  .showcase-orbit{will-change:transform}
+  .auth-login .auth-story:after{will-change:transform,opacity}
+  .showcase-scene>header>span{font-size:10px}.showcase-scene>header small{font-size:8px}
+  .showcase-scene>footer{font-size:8px}.showcase-request small,.showcase-request em{font-size:8px}
+  .showcase-request b{font-size:10px}.showcase-location{font-size:8px}.showcase-caption{font-size:9px}
+}
+@keyframes showcaseSceneJourneyDesktop{
+  0%,100%{transform:translate3d(-1.2%,1%,0) rotate(-.4deg) scale(.98)}
+  25%{transform:translate3d(.8%,-.7%,0) rotate(.25deg) scale(.995)}
+  50%{transform:translate3d(1.2%,.6%,0) rotate(-.2deg) scale(.985)}
+  75%{transform:translate3d(-.7%,-.6%,0) rotate(.3deg) scale(1)}
+}
