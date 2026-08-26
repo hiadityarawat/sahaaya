@@ -290,3 +290,33 @@ body:has(.auth-shell) .pwa-install,body:has(.platform-shell) .pwa-install{displa
   .mobile-tabbar button span{font-size:9px!important}
   .mobile-brand{font-size:12px!important}
 }
+
+/* Accessibility baseline: primary operational copy must remain comfortable at
+   100% browser zoom on ordinary laptop and desktop displays. */
+.side-event span{font-size:14px}.side-event small,.side-section>small{font-size:11px}
+.side-nav button,.side-section button,.side-logout{font-size:14px;line-height:1.35}
+.side-brand-copy>small{font-size:10px!important}.system-state b{font-size:13px}.system-state small{font-size:11px}
+.crumb small{font-size:11px}.crumb b{font-size:20px}.signed-user,.header-logout{font-size:15px}
+.overline{font-size:11px!important}.page-head>div>p:last-child{font-size:15px!important;line-height:1.65}
+.solid-btn,.soft-btn{font-size:14px}.solid-btn.small,.soft-btn.small{font-size:13px}
+.stat-card p,.overview-home .stat-card p{font-size:14px!important;line-height:1.35}
+.stat-card small,.overview-home .stat-card small{font-size:12px!important;line-height:1.5}
+.card-head button,.safe-map,.privacy-strip{font-size:12px}.dashboard-brand-copy small{font-size:10px}
+.priority-empty b,.empty-state b{font-size:15px}.priority-empty p,.empty-state p{font-size:13px}
+.filter-bar label,.map-filters label{font-size:13px}.filter-bar input,.filter-bar select,.map-filters select{font-size:14px}
+.table-title small{font-size:13px}.request-table .tr{font-size:14px}.request-table .th{font-size:12px}.request-table .tr span>small{font-size:12px}
+.request-line>span>b{font-size:14px}.request-line>span>small,.request-line time{font-size:12px}.badge{font-size:11px}
+.resource-tile p{font-size:12px}.resource-tile h3{font-size:16px}.resource-tile>div>small{font-size:12px}
+.activity-list p,.notification-page p{font-size:14px}.activity-list small,.notification-page small{font-size:12px}
+.notification-page b{font-size:15px}.profile-card p,.settings-card small,.security-note{font-size:13px}.settings-card b{font-size:15px}
+.review-list b,.org-list b,.event-list b,.admin-user-list b{font-size:14px}.review-list p{font-size:13px}
+.review-list small,.org-list small,.event-list small,.event-list time,.admin-user-list small{font-size:12px}
+.request-form form>label,.adjust-form label,.request-form fieldset legend,.request-form fieldset label{font-size:13px}
+.request-form input,.request-form select,.request-form textarea,.adjust-form input,.detail-body textarea,.detail-actions select{font-size:14px}
+.privacy-copy,.projected,.global-toast{font-size:13px}
+@media(max-width:760px){
+  .stat-card p,.overview-home .stat-card p{font-size:14px!important}
+  .stat-card small,.overview-home .stat-card small{font-size:12px!important}
+  .mobile-tabbar button span{font-size:10px!important}
+  .mobile-brand{font-size:14px!important}
+}
