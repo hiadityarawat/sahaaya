@@ -9,7 +9,7 @@ installed app uses the same secure account and live community data as the
 website. When the network is unavailable, it shows a safe offline screen and
 never caches private API responses.
 
-**Live application:** [sahaaya-disaster-response.hi-aditya-rawat.chatgpt.site](https://sahaaya-disaster-response.hi-aditya-rawat.chatgpt.site/)
+**Live application:** [https://sahaaya.hi-aditya-rawat.workers.dev/](https://sahaaya.hi-aditya-rawat.workers.dev/)
 
 > Sahaaya supports community coordination; it is not a replacement for police, fire, ambulance, or other official emergency services. In a life-threatening emergency, contact the appropriate local authority first.
 
